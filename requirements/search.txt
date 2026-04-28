@@ -11,3 +11,16 @@ User can use filters to refine results
 User can click on a product to view details
 User can see clear card comparison or highlights without logging in
 User receives relevant results based on selected filters or search criteria
+
+---
+
+Title: Search for iPhone 17 products
+
+As a customer
+I want to search for the latest iPhone 17 on the eCommerce site
+So that I can see the pricing and availability
+
+Acceptance Criteria:
+User can search for "iphone 17" in the search bar
+User is presented with iPhone 17 product results
+User can view the price and specifications for iPhone 17
