@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 
 
@@ -37,6 +38,19 @@ def status_emoji(status):
     return "⏭️"
 
 
+def extract_he_job_link(failure_analysis_path="reports/hyperexecute_failure_analysis.md"):
+    path = Path(failure_analysis_path)
+    if not path.exists():
+        return "", ""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"https://hyperexecute\.lambdatest\.com/hyperexecute/task\?jobId=([\w-]+)", text)
+    if not match:
+        return "", ""
+    job_id = match.group(1)
+    job_link = match.group(0)
+    return job_id, job_link
+
+
 def main():
     run_url = os.environ.get("RUN_URL", "")
 
@@ -45,7 +59,11 @@ def main():
     manifest = load_json("reports/test_execution_manifest.json", {})
     objectives = load_json("kane/objectives.json", [])
     trace_json = load_json("reports/traceability_matrix.json", {})
-    he_result = load_json("reports/hyperexecute-result.json", {})
+    api_details = load_json("reports/api_details.json", {})
+
+    he_api = api_details.get("he_summary", {})
+    he_tasks_api = api_details.get("he_tasks", [])
+    kane_sessions_api = {s["requirement_id"]: s for s in api_details.get("kane_sessions", [])}
 
     # ── Classify requirements ──────────────────────────────────────────────
     kane_passed = [r for r in requirements if r.get("kane_status") == "passed"]
@@ -63,9 +81,10 @@ def main():
     # ── Execution stats ────────────────────────────────────────────────────
     selected = manifest.get("selected_scenarios", [])
     run_type = manifest.get("run_type", "full")
-    he_summary = he_result.get("summary", {})
-    he_job_id = he_result.get("id", "")
-    he_job_link = he_summary.get("job_link", "")
+    he_job_id = he_api.get("job_id", "") or extract_he_job_link()[0]
+    he_job_link = he_api.get("job_link", "")
+    he_selenium_link = he_api.get("selenium_reports_link", "")
+    he_runtime_link = he_api.get("runtime_logs_link", "")
 
     trace_summary = trace_json.get("summary", {})
     trace_rows = trace_json.get("rows", [])
@@ -128,14 +147,20 @@ def main():
                 if r["id"] in new_needed_ids:
                     icon = status_emoji(r.get("kane_status", "unknown"))
                     kane_links = r.get("kane_links", [])
-                    link = f" ([Kane session]({kane_links[0]}))" if kane_links and kane_links[0] else ""
+                    session = kane_sessions_api.get(r["id"], {})
+                    session_link = session.get("link") or (kane_links[0] if kane_links else "")
+                    link = f" — [Kane AI session]({session_link})" if session_link else ""
                     emit(f"- {icon} `{r['id']}` {r['title']}{link}")
             emit("")
 
         if kane_failed:
-            emit(f"⚠️ **{len(kane_failed)} criterion/criteria could not be verified by Kane AI** (site may not expose this feature):")
+            emit(f"⚠️ **{len(kane_failed)} criterion/criteria could not be verified by Kane AI:**")
             for r in kane_failed:
-                emit(f"- ❌ `{r['id']}` {r['title']}")
+                kane_links = r.get("kane_links", [])
+                session = kane_sessions_api.get(r["id"], {})
+                session_link = session.get("link") or (kane_links[0] if kane_links else "")
+                link = f" — [Kane AI session]({session_link})" if session_link else ""
+                emit(f"- ❌ `{r['id']}` {r['title']}{link}")
             emit("")
 
     # ── Stage 2: Scenario Management ──────────────────────────────────────
@@ -190,26 +215,43 @@ def main():
     # ── Stage 4b: Execution ────────────────────────────────────────────────
     emit("## Stage 4b · Regression Execution at Scale (HyperExecute)")
     emit("")
-    if he_job_id:
-        emit(
-            f"I submitted the selected tests to **LambdaTest HyperExecute** for parallel cloud execution. "
-            f"Tests ran across multiple workers simultaneously — no sequential bottleneck."
-        )
-        emit("")
-        he_total = he_summary.get("total_tasks", len(selected))
-        he_failed = he_summary.get("failed_tasks", failed_count)
-        he_passed_count = he_total - he_failed if isinstance(he_total, int) else passed
-        emit(f"| Metric | Value |")
-        emit(f"|---|---|")
-        emit(f"| HyperExecute Job | [{he_job_id[:8]}...]({he_job_link}) |" if he_job_link else f"| HyperExecute Job | `{he_job_id}` |")
-        emit(f"| Total tasks | {he_total} |")
-        emit(f"| Passed | {he_passed_count} |")
-        emit(f"| Failed | {he_failed} |")
-        if he_job_id:
-            emit(f"| Selenium reports | [View artifacts](https://hyperexecute.lambdatest.com/artifact/view/{he_job_id}?artifactName=selenium-test-reports) |")
-    else:
-        emit(f"HyperExecute executed **{len(selected)} test(s)**. Results: **{passed} passed**, **{failed_count} failed**.")
+    emit(
+        f"I submitted the selected tests to **LambdaTest HyperExecute** for parallel cloud execution. "
+        f"Tests ran across multiple workers simultaneously — no sequential bottleneck."
+    )
     emit("")
+
+    he_total = he_api.get("total_tasks") or len(selected)
+    he_failed_api = he_api.get("failed_tasks", failed_count)
+    he_passed_api = (he_total - he_failed_api) if isinstance(he_total, int) else passed
+    he_status = he_api.get("status", "unknown")
+
+    emit("| Metric | Value |")
+    emit("|---|---|")
+    if he_job_link:
+        emit(f"| HyperExecute Job | [Open in LambdaTest ↗]({he_job_link}) |")
+    else:
+        emit(f"| HyperExecute Job ID | `{he_job_id or 'n/a'}` |")
+    emit(f"| Status | {he_status} |")
+    emit(f"| Total tasks | {he_total} |")
+    emit(f"| ✅ Passed | {he_passed_api} |")
+    emit(f"| ❌ Failed | {he_failed_api} |")
+    if he_selenium_link:
+        emit(f"| Selenium reports | [Download artifacts ↗]({he_selenium_link}) |")
+    if he_runtime_link:
+        emit(f"| Runtime logs | [View logs ↗]({he_runtime_link}) |")
+    emit("")
+
+    if he_tasks_api:
+        emit("**Per-test results from HyperExecute API:**")
+        emit("")
+        emit("| Test | Status | Session |")
+        emit("|---|---|---|")
+        for task in he_tasks_api:
+            status_icon = "✅" if task["status"] in ("passed", "completed") else "❌"
+            session = f"[View session]({task['session_link']})" if task.get("session_link") else "—"
+            emit(f"| `{task['name'] or task['task_id']}` | {status_icon} {task['status']} | {session} |")
+        emit("")
 
     # ── Stage 5: Traceability ──────────────────────────────────────────────
     emit("## Stage 5 · Results with Full Traceability")

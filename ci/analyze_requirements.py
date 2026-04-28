@@ -12,7 +12,7 @@ TARGET_URL = "https://ecommerce-playground.lambdatest.io/"
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--requirements", default="requirements/search.txt")
+    parser.add_argument("--requirements", default="requirements")
     parser.add_argument("--output", default="requirements/analyzed_requirements.json")
     parser.add_argument("--kane-results", default="reports/kane_results.json")
     parser.add_argument("--skip-kane", action="store_true")
@@ -49,11 +49,11 @@ def extract_acceptance_criteria(text):
 
 def make_title(description):
     lowered = description.lower()
-    if "view a list of available products" in lowered:
+    if "view a list of available products" in lowered or "product section" in lowered:
         return "Navigate to products section and view product list"
-    if "use filters" in lowered:
+    if "use filters" in lowered or "refine results" in lowered:
         return "Use filters to refine product results"
-    if "click on a product" in lowered:
+    if "click on a product" in lowered or "view details" in lowered:
         return "Click a product to view details including price and description"
     if "without logging in" in lowered:
         return "View product highlights without logging in"
@@ -76,13 +76,9 @@ def run_kane(description):
         }
 
     command = [
-        "npx",
-        "-y",
-        "@testmuai/kane-cli@latest",
+        "kane-cli",
         "run",
-        description,
-        "--url",
-        TARGET_URL,
+        f"{description} on {TARGET_URL}",
         "--username",
         username,
         "--access-key",
@@ -91,8 +87,6 @@ def run_kane(description):
         "--headless",
         "--timeout",
         "120",
-        "--max-steps",
-        "15",
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
@@ -128,8 +122,15 @@ def run_kane(description):
 
 def main():
     args = parse_args()
-    text = Path(args.requirements).read_text(encoding="utf-8")
-    criteria = extract_acceptance_criteria(text)
+    req_path = Path(args.requirements)
+    criteria = []
+    
+    if req_path.is_dir():
+        for req_file in sorted(req_path.glob("*.txt")):
+            criteria.extend(extract_acceptance_criteria(req_file.read_text(encoding="utf-8")))
+    else:
+        criteria = extract_acceptance_criteria(req_path.read_text(encoding="utf-8"))
+        
     today = datetime.now(timezone.utc).date().isoformat()
 
     analyzed = []
