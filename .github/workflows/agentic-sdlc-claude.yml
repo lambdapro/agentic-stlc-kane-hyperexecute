@@ -43,9 +43,15 @@ jobs:
       - name: Install Kane CLI skill for AI agents
         run: |
           mkdir -p ~/.claude/skills/kane-cli
-          curl -fsSL -o ~/.claude/skills/kane-cli/SKILL.md \
-            https://raw.githubusercontent.com/LambdaTest/kane-cli/main/skills/claude/SKILL.md
-          echo "Kane CLI skill installed ($(wc -l < ~/.claude/skills/kane-cli/SKILL.md) lines)"
+          # Use skill committed to repo; fall back to official URL if missing
+          if [ -f ".claude/skills/kane-cli/SKILL.md" ]; then
+            cp .claude/skills/kane-cli/SKILL.md ~/.claude/skills/kane-cli/SKILL.md
+            echo "Kane CLI skill loaded from repo ($(wc -l < ~/.claude/skills/kane-cli/SKILL.md) lines)"
+          else
+            curl -fsSL -o ~/.claude/skills/kane-cli/SKILL.md \
+              https://raw.githubusercontent.com/LambdaTest/kane-cli/main/skills/claude/SKILL.md \
+              || echo "Warning: could not download skill, agent will proceed without it"
+          fi
 
       - name: Authenticate Kane CLI
         env:
