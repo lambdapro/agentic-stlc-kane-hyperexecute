@@ -248,6 +248,8 @@ jobs:
     needs: analyze-failures
     if: always()
     runs-on: ubuntu-latest
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -290,7 +292,9 @@ jobs:
 
       - name: Print release recommendation
         if: always()
-        run: cat reports/release_recommendation.md 2>/dev/null || echo "Report not generated"
+        run: |
+          cat reports/release_recommendation.md 2>/dev/null || echo "Release report not generated"
+          cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "Failure analysis not generated"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -299,3 +303,4 @@ jobs:
           path: |
             reports/traceability_matrix.md
             reports/release_recommendation.md
+            reports/hyperexecute_failure_analysis.md
