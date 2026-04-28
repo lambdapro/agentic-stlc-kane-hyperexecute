@@ -233,13 +233,6 @@ jobs:
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
         run: python ci/analyze_hyperexecute_failures.py
 
-      - name: Print failure analysis
-        if: always()
-        run: |
-          ANALYSIS=$(cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "No failure analysis generated")
-          echo "$ANALYSIS"
-          echo "$ANALYSIS" >> $GITHUB_STEP_SUMMARY
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -307,21 +300,9 @@ jobs:
 
       - name: Build full pipeline summary
         if: always()
-        run: |
-          RUN_URL="${{ env.RUN_URL }}"
-          echo "# Agentic SDLC Pipeline — Full Run Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Run: $RUN_URL" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          python ci/write_github_summary.py --stage analyze   --run-url "$RUN_URL"
-          python ci/write_github_summary.py --stage manage    --run-url "$RUN_URL"
-          python ci/write_github_summary.py --stage generate  --run-url "$RUN_URL"
-          python ci/write_github_summary.py --stage select    --run-url "$RUN_URL"
-          python ci/write_github_summary.py --stage execute   --run-url "$RUN_URL"
-          python ci/write_github_summary.py --stage analyze-failures --run-url "$RUN_URL"
-          python ci/write_github_summary.py --stage report    --run-url "$RUN_URL"
+        env:
+          RUN_URL: ${{ env.RUN_URL }}
+        run: python ci/write_github_summary.py
 
       - uses: actions/upload-artifact@v4
         if: always()
