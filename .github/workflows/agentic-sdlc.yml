@@ -235,7 +235,10 @@ jobs:
 
       - name: Print failure analysis
         if: always()
-        run: cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "No failure analysis generated"
+        run: |
+          ANALYSIS=$(cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "No failure analysis generated")
+          echo "$ANALYSIS"
+          echo "$ANALYSIS" >> $GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -293,8 +296,14 @@ jobs:
       - name: Print release recommendation
         if: always()
         run: |
-          cat reports/release_recommendation.md 2>/dev/null || echo "Release report not generated"
-          cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "Failure analysis not generated"
+          RELEASE=$(cat reports/release_recommendation.md 2>/dev/null || echo "Release report not generated")
+          FAILURE=$(cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "Failure analysis not generated")
+          echo "$RELEASE"
+          echo ""
+          echo "$FAILURE"
+          echo "$RELEASE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "$FAILURE" >> $GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         if: always()
