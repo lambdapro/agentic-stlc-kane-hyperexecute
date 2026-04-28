@@ -1,17 +1,9 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# Agentic SDLC Pipeline — AmEx Credit Cards
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# Each job calls Claude Code with a stage name from PIPELINE.md.
-# The same claude -p "Execute stage: X from PIPELINE.md" command works in:
-#   GitLab CI  →  script: claude -p "Execute stage: X from PIPELINE.md"
-#   Jenkins    →  sh 'claude -p "Execute stage: X from PIPELINE.md"'
-#   Bitbucket  →  script: claude -p "Execute stage: X from PIPELINE.md"
-#
-# Required secrets: LT_USERNAME, LT_ACCESS_KEY, ANTHROPIC_API_KEY
-# ═══════════════════════════════════════════════════════════════════════════════
-
 name: Agentic SDLC Pipeline
+
+# Triggers: push to requirements/ OR manual dispatch
+# Each job runs one pipeline stage from PIPELINE.md via Claude Code.
+# The same pattern works in GitLab CI, Jenkins, and Bitbucket unchanged.
+# Required secrets: LT_USERNAME, LT_ACCESS_KEY, ANTHROPIC_API_KEY
 
 on:
   push:
@@ -23,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       full_run:
-        description: Run all tests (not just changed scenarios)
+        description: Run all tests not just changed scenarios
         required: false
         default: 'false'
 
@@ -31,10 +23,11 @@ env:
   NODE_VERSION: '20'
   PYTHON_VERSION: '3.11'
 
-# ── Stage 1: ANALYZE_REQUIREMENTS ─────────────────────────────────────────────
 jobs:
+
+  # Stage 1 - Parse requirements and verify each AC on the live site via Kane CLI
   analyze-requirements:
-    name: "Stage 1 — Analyze Requirements"
+    name: Stage 1 - Analyze Requirements
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,24 +36,26 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Kane CLI + Claude Code
+      - name: Install Kane CLI and Claude Code
         run: npm install -g @testmuai/kane-cli @anthropic-ai/claude-code
 
-      - name: "PIPELINE STAGE: ANALYZE_REQUIREMENTS"
-        run: claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
+      - name: Execute ANALYZE_REQUIREMENTS stage
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: analyzed-requirements
           path: requirements/analyzed_requirements.json
 
-# ── Stage 2: MANAGE_SCENARIOS ─────────────────────────────────────────────────
+  # Stage 2 - Diff scenarios.json: update changed, add new, deprecate removed
   manage-scenarios:
-    name: "Stage 2 — Manage Scenarios"
+    name: Stage 2 - Manage Scenarios
     needs: analyze-requirements
     runs-on: ubuntu-latest
     steps:
@@ -78,19 +73,21 @@ jobs:
           name: analyzed-requirements
           path: requirements/
 
-      - name: "PIPELINE STAGE: MANAGE_SCENARIOS"
-        run: claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
+      - name: Execute MANAGE_SCENARIOS stage
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: scenarios
           path: scenarios/scenarios.json
 
-# ── Stage 3: GENERATE_TESTS ───────────────────────────────────────────────────
+  # Stage 3 - Write/update Selenium Python tests for new and changed scenarios
   generate-tests:
-    name: "Stage 3 — Generate Tests"
+    name: Stage 3 - Generate Tests
     needs: manage-scenarios
     runs-on: ubuntu-latest
     steps:
@@ -108,21 +105,23 @@ jobs:
           name: scenarios
           path: scenarios/
 
-      - name: "PIPELINE STAGE: GENERATE_TESTS"
-        run: claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
+      - name: Execute GENERATE_TESTS stage
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: test-suite
           path: |
             tests/
             kane/objectives.json
 
-# ── Stage 4: SELECT_TESTS + Execute on HyperExecute ──────────────────────────
+  # Stage 4 - Select tests then execute in parallel on HyperExecute cloud
   execute-tests:
-    name: "Stage 4 — Select & Execute Tests (HyperExecute)"
+    name: Stage 4 - Execute Tests on HyperExecute
     needs: generate-tests
     runs-on: ubuntu-latest
     steps:
@@ -144,26 +143,24 @@ jobs:
           name: test-suite
           path: .
 
-      - name: "PIPELINE STAGE: SELECT_TESTS"
-        run: claude -p "Execute stage: SELECT_TESTS from PIPELINE.md"
+      - name: Execute SELECT_TESTS stage
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FULL_RUN: ${{ inputs.full_run || 'false' }}
+        run: |
+          claude -p "Execute stage: SELECT_TESTS from PIPELINE.md"
 
       - name: Download HyperExecute CLI
         run: |
           curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
           chmod +x hyperexecute
 
-      - name: Execute tests on HyperExecute
-        run: |
-          ./hyperexecute \
-            --user $LT_USERNAME \
-            --key $LT_ACCESS_KEY \
-            --config hyperexecute.yaml
+      - name: Run tests on HyperExecute
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+        run: |
+          ./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -171,9 +168,9 @@ jobs:
           name: test-results
           path: reports/
 
-# ── Stage 5: TRACEABILITY_REPORT + RELEASE_RECOMMENDATION ────────────────────
+  # Stage 5 - Build traceability matrix and produce QA release recommendation
   traceability-and-recommendation:
-    name: "Stage 5 — Traceability Matrix & Release Recommendation"
+    name: Stage 5 - Traceability and Release Recommendation
     needs: execute-tests
     runs-on: ubuntu-latest
     if: always()
@@ -198,21 +195,25 @@ jobs:
           path: scenarios/
 
       - uses: actions/download-artifact@v4
+        if: always()
         with:
           name: test-results
           path: reports/
 
-      - name: "PIPELINE STAGE: TRACEABILITY_REPORT"
-        run: claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
+      - name: Execute TRACEABILITY_REPORT stage
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
 
-      - name: "PIPELINE STAGE: RELEASE_RECOMMENDATION"
-        run: claude -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
+      - name: Execute RELEASE_RECOMMENDATION stage
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: release-reports
           path: |
@@ -220,4 +221,5 @@ jobs:
             reports/release_recommendation.md
 
       - name: Print release recommendation
-        run: cat reports/release_recommendation.md
+        if: always()
+        run: cat reports/release_recommendation.md 2>/dev/null || echo "Report not generated"
