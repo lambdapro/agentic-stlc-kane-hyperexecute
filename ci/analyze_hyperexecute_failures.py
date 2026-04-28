@@ -7,7 +7,7 @@ from pathlib import Path
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--result-json", default=".hyperexecute/result.json")
+    parser.add_argument("--result-json", default="reports/hyperexecute-result.json")
     parser.add_argument("--junit-dir", default="reports")
     parser.add_argument("--cli-log", default="hyperexecute-cli.log")
     parser.add_argument("--out", default="reports/hyperexecute_failure_analysis.md")

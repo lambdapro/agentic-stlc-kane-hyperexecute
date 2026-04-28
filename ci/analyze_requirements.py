@@ -74,7 +74,9 @@ def run_kane(description):
         }
 
     command = [
-        "kane-cli",
+        "npx",
+        "-y",
+        "@testmuai/kane-cli@latest",
         "run",
         description,
         "--url",

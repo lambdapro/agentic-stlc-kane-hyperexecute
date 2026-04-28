@@ -179,13 +179,19 @@ jobs:
             --download-report \
             --download-logs
 
+      - name: Surface HyperExecute result metadata
+        if: always()
+        run: |
+          if [ -f .hyperexecute/result.json ]; then
+            cp .hyperexecute/result.json reports/hyperexecute-result.json
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
           path: |
             reports/
-            .hyperexecute/result.json
             hyperexecute-cli.log
 
       - name: Fail job if HyperExecute reported test failures
