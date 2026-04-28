@@ -24,62 +24,62 @@ def load_json(path, default):
 def title_and_steps(requirement):
     requirement_id = requirement["id"]
     description = requirement["description"].lower()
-    if requirement_id == "AC-001" or "available credit cards" in description:
+    if requirement_id == "AC-001" or "available products" in description:
         return (
-            "Navigate to credit cards section and view available card list",
+            "Navigate to product section and view available products",
             [
-                "Navigate to https://www.americanexpress.com/",
-                "Locate and click the Credit Cards navigation link",
-                "Verify the credit cards listing page loads",
-                "Verify multiple card tiles are visible on the page",
+                "Navigate to https://ecommerce-playground.lambdatest.io/",
+                "Locate and click the Shop navigation link",
+                "Verify the products listing page loads",
+                "Verify multiple product tiles are visible on the page",
             ],
-            "A list of available American Express credit cards is displayed with card tiles and filter options visible",
+            "A list of available products is displayed with product tiles and filter options visible",
         )
     if "use filters" in description:
         return (
-            "Filter credit cards by category (rewards, travel, cashback)",
+            "Filter products by category",
             [
-                "Navigate to https://www.americanexpress.com/",
-                "Go to the credit cards section",
-                "Locate filter chips such as Travel, Cash Back, or Rewards",
-                "Click a filter chip",
-                "Verify the card list updates to show filtered results",
+                "Navigate to https://ecommerce-playground.lambdatest.io/",
+                "Go to a category page",
+                "Locate filter options on the sidebar",
+                "Select a filter",
+                "Verify the product list updates to show filtered results",
             ],
-            "Filtered credit card results are displayed below the filter chips after applying a filter",
+            "Filtered results are displayed after applying a filter",
         )
-    if "click on a credit card" in description:
+    if "click on a product" in description:
         return (
-            "Click a credit card to view details including benefits, fees, and rewards",
+            "Click a product to view details",
             [
-                "Navigate to https://www.americanexpress.com/",
-                "Go to the credit cards section",
-                "Click on any credit card tile or View Details link",
-                "Verify the card detail page loads",
-                "Verify benefits, annual fee, and rewards information is visible",
+                "Navigate to https://ecommerce-playground.lambdatest.io/",
+                "Search for a product",
+                "Click on any product image or title",
+                "Verify the product detail page loads",
+                "Verify price and description information is visible",
             ],
-            "Card detail page is displayed showing benefits, annual fee, and rewards or points information",
+            "Product detail page is displayed showing specific item information",
         )
     if "without logging in" in description:
         return (
-            "View card highlights and comparison without logging in",
+            "View product highlights without logging in",
             [
-                "Navigate to https://www.americanexpress.com/ without logging in",
-                "Go to the credit cards section",
-                "Verify card highlights or comparison section is visible",
+                "Navigate to https://ecommerce-playground.lambdatest.io/ without logging in",
+                "Scroll through the homepage",
+                "Verify featured products or carousel is visible",
                 "Verify no login prompt blocks the content",
             ],
-            "Card highlights and featured benefits are visible on the credit cards page without requiring login",
+            "Product highlights are visible on the page without requiring login",
         )
     return (
         "Search results are relevant to selected filters or criteria",
         [
-            "Navigate to https://www.americanexpress.com/",
-            "Go to the credit cards section",
-            "Apply a filter such as Travel",
-            "Verify the displayed cards are relevant to the selected filter",
-            "Check that card descriptions or labels match the filter category",
+            "Navigate to https://ecommerce-playground.lambdatest.io/",
+            "Search for an item",
+            "Apply a filter",
+            "Verify the displayed items are relevant to the selected filter",
+            "Check that item descriptions match the search term",
         ],
-        "Cards shown after applying a filter are relevant to the selected category, such as travel cards appearing when the Travel filter is applied",
+        "Results shown are relevant to the selected category or search term",
     )
 
 

@@ -4,9 +4,9 @@ autosplit: true
 concurrency: 4
 
 env:
+  LT_USERNAME: ${LT_USERNAME}
+  LT_ACCESS_KEY: ${LT_ACCESS_KEY}
   TARGET_URL: https://www.americanexpress.com/
-  USE_REMOTE_GRID: "false"
-  HEADLESS: "false"
 
 runtime:
   language: python
@@ -18,49 +18,24 @@ cacheDirectories:
 
 pre:
   - pip install --cache-dir .pip_cache -r requirements.txt
-  - pip install pytest-html selenium
 
 testDiscovery:
   type: raw
-  mode: dynamic
-  command: |
-    python3 - <<'PY'
-    from pathlib import Path
-    selection = Path("reports/pytest_selection.txt")
-    tests = []
-    if selection.exists():
-      tests = [line.strip() for line in selection.read_text().splitlines() if line.strip()]
-    if not tests:
-      tests = [
-        "tests/selenium/test_credit_cards.py::test_sc_001_navigate_to_credit_cards_and_view_list",
-        "tests/selenium/test_credit_cards.py::test_sc_002_filter_cards_by_category",
-        "tests/selenium/test_credit_cards.py::test_sc_003_click_card_view_details",
-        "tests/selenium/test_credit_cards.py::test_sc_004_card_highlights_visible_without_login",
-        "tests/selenium/test_credit_cards.py::test_sc_005_relevant_results_for_selected_filter",
-      ]
-    for t in tests:
-      print(t)
-    PY
+  mode: static
+  command: python3 -c "tests=['test_sc_001_navigate_to_credit_cards_and_view_list','test_sc_002_filter_cards_by_category','test_sc_003_click_card_view_details','test_sc_004_card_highlights_visible_without_login','test_sc_005_relevant_results_for_selected_filter'];[print(t) for t in tests]"
 
-testRunnerCommand: python3 ci/run_pytest_node.py "$test"
+testRunnerCommand: pytest tests/selenium/test_credit_cards.py::$test -v --tb=short --html=reports/$test.html --self-contained-html
 
 mergeArtifacts: true
 uploadArtefacts:
   - name: selenium-test-reports
     path:
       - reports/
-  - name: hyperexecute-runtime
-    path:
-      - hyperexecute-cli.log
 
 retryOnFailure: true
 maxRetries: 2
 
 report: true
-partialReports:
-  - frameworkName: extent
-    type: html
-    location: reports/html
 
 post:
   - echo "Tests complete"

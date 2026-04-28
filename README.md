@@ -1,171 +1,60 @@
-# Agentic SDLC — AmEx Credit Cards
+# Agentic SDLC — Kane AI + Claude + HyperExecute
 
-An end-to-end **agentic Software Development Lifecycle** demonstration where plain-English requirements automatically drive scenario generation, test creation, parallel cloud execution, and a QA release recommendation — with no manual scripting.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Pure CI Pipeline](https://github.com/lambdapro/agentic-sdlc-kane-claude-hyperexecute/actions/workflows/agentic-sdlc.yml/badge.svg)](https://github.com/lambdapro/agentic-sdlc-kane-claude-hyperexecute/actions/workflows/agentic-sdlc.yml)
 
-## How It Works
+> **Open source under the MIT License.** Fork it, adapt it, ship it.
 
-```
-requirements/search.txt  (plain English user story)
-        │
-        ▼
-Stage 1: ANALYZE_REQUIREMENTS
-  Claude Code + Kane CLI browse americanexpress.com
-  and confirm each acceptance criterion is observable on the live site
-        │
-        ▼
-Stage 2: MANAGE_SCENARIOS
-  Diffs scenarios.json — updates changed, adds new, deprecates removed
-        │
-        ▼
-Stage 3: GENERATE_TESTS
-  Writes/updates Selenium Python test cases for every new or changed scenario
-        │
-        ▼
-Stage 4: SELECT_TESTS → HyperExecute
-  Claude picks which tests to run, HyperExecute runs them in parallel (4 VMs)
-        │
-        ▼
-Stage 5: TRACEABILITY_REPORT + RELEASE_RECOMMENDATION
-  Requirement → Scenario → Test → Result matrix + GREEN/YELLOW/RED QA verdict
-```
-
-The entire pipeline is controlled by **`PIPELINE.md`** — a plain-English instruction file. Claude Code reads it and executes each stage autonomously. The same command works in GitHub Actions, GitLab CI, Jenkins, or Bitbucket:
-
-```bash
-claude -p "Execute stage: <STAGE_NAME> from PIPELINE.md"
-```
-
-This repo now supports two execution styles:
-
-- Agentic mode: Claude Code executes each stage from `PIPELINE.md`.
-- Pure CI mode: GitHub Actions and helper scripts in `ci/` run the same stages without Claude.
-
-## Why Kane CLI + HyperExecute
-
-- No burning unnecessary tokens on orchestration work that CI can handle deterministically.
-- HyperExecute provides ephemeral test environments, so every execution starts clean and isolated.
-- Kane AI is a specialized testing agent, which gives requirement analysis and UI verification better accuracy.
-- HyperExecute scales parallel execution aggressively, so Selenium can fan out well beyond a single GitHub runner.
+An end-to-end **agentic Software Development Lifecycle** where plain-English requirements drive every stage of QA — from requirement analysis, through scenario management and test generation, to parallel cloud execution and a final release verdict.
 
 ---
 
-## Repository Structure
+## The one step that triggers everything
+
+Edit your requirements, commit, push. That's it.
+
+```bash
+# 1. Edit the requirements file
+vim requirements/search.txt
+
+# 2. Commit and push — GitHub Actions runs all 5 stages automatically
+git add requirements/search.txt
+git commit -m "feat: add requirement for card detail navigation"
+git push
+```
+
+GitHub Actions picks up the push and runs the full pipeline:
 
 ```
-.
-├── PIPELINE.md                          # Natural language CI instruction file
-├── CLAUDE.md                            # Claude Code project configuration
-├── hyperexecute.yaml                    # HyperExecute cloud execution config
-├── requirements.txt                     # Python dependencies
-│
-├── requirements/
-│   └── search.txt                       # Input: plain-English user story
-│
-├── scenarios/
-│   └── scenarios.json                   # Managed test scenarios (auto-updated)
-│
-├── kane/
-│   └── objectives.json                  # Kane CLI objectives per scenario
-│
-├── tests/selenium/
-│   ├── conftest.py                      # pytest fixtures + LambdaTest WebDriver
-│   ├── pages/
-│   │   └── credit_cards_page.py         # Page Object Model
-│   └── test_credit_cards.py             # 5 Selenium test cases (TC-001 to TC-005)
-│
-├── reports/                             # Runtime output — gitignored
-│   ├── traceability_matrix.md
-│   └── release_recommendation.md
-│
-└── .github/workflows/
-    └── agentic-sdlc.yml                 # 5-stage GitHub Actions pipeline
+Stage 1: Analyze   → Kane AI browses the live site, verifies each acceptance criterion
+Stage 2: Manage    → Diffs scenarios.json, adds new, updates changed, deprecates removed
+Stage 3: Generate  → Writes Selenium Python test cases for every new/changed scenario
+Stage 4: Execute   → HyperExecute runs selected tests in parallel across cloud VMs
+Stage 5: Report    → Traceability matrix + GREEN / YELLOW / RED release recommendation
 ```
+
+No human writes a single test. No one maps a requirement to code. The pipeline does it all.
 
 ---
 
-## Prerequisites
+## Why this architecture?
 
-| Tool | Version | Install |
-|---|---|---|
-| Node.js | 18+ | https://nodejs.org |
-| Python | 3.11+ | https://python.org |
-| Google Chrome | Latest | https://www.google.com/chrome |
-| Kane CLI | Latest | `npm install -g @testmuai/kane-cli` |
-| Claude Code | Latest | `npm install -g @anthropic-ai/claude-code` |
-
----
-
-## Quick Start
-
-### 1. Clone and install
-
-```bash
-git clone <your-repo-url>
-cd amex
-
-# Install Kane CLI and Claude Code
-npm install -g @testmuai/kane-cli @anthropic-ai/claude-code
-
-# Install Python dependencies
-pip install -r requirements.txt
-```
-
-### 2. Set credentials
-
-All three tools — Claude Code, Kane CLI, and HyperExecute — authenticate from environment variables. Set them once and every tool picks them up automatically.
-
-```bash
-# LambdaTest (Kane CLI + HyperExecute)
-export LT_USERNAME=your_lambdatest_username
-export LT_ACCESS_KEY=your_lambdatest_access_key
-
-# Anthropic (Claude Code)
-export ANTHROPIC_API_KEY=your_anthropic_api_key
-```
-
-To persist across terminal sessions, add the exports to your shell profile:
-
-```bash
-# ~/.zshrc or ~/.bashrc
-echo 'export LT_USERNAME=your_lambdatest_username' >> ~/.zshrc
-echo 'export LT_ACCESS_KEY=your_lambdatest_access_key' >> ~/.zshrc
-echo 'export ANTHROPIC_API_KEY=your_anthropic_api_key' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**Where to get each credential:**
-
-| Credential | Source |
+| Problem | Solution |
 |---|---|
-| `LT_USERNAME` | [LambdaTest Dashboard → Settings → Keys](https://accounts.lambdatest.com/security) |
-| `LT_ACCESS_KEY` | Same page as above |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
-
-### 3. Authenticate each tool
-
-**Claude Code** — picks up `ANTHROPIC_API_KEY` automatically. Verify:
-```bash
-claude --version
-```
-
-**Kane CLI** — authenticate using Basic Auth (works in all contexts including CI and agent mode where a browser cannot open):
-```bash
-kane-cli login --username $LT_USERNAME --access-key $LT_ACCESS_KEY
-
-# Verify
-kane-cli whoami
-```
-
-**HyperExecute CLI** — no separate login needed. Credentials are passed via `--user` and `--key` flags at runtime, which read from the environment:
-```bash
-./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
-```
+| LLMs burn tokens on repetitive UI clicks | **Kane AI** is a specialized testing agent — no wasted reasoning |
+| One CI runner is too slow for 50+ tests | **HyperExecute** fans out to 4–1000 parallel VMs |
+| Tests drift from requirements | **Scenarios are regenerated** every time requirements change |
+| QA verdict is manual and subjective | **Release recommendation** is generated from actual test data |
 
 ---
 
-## Running the Agentic Pipeline Locally
+## Two execution modes
 
-Run all stages in sequence:
+This repo supports both approaches. Choose based on your team's tooling:
+
+### Mode A — Agentic (Claude Code orchestrates everything)
+
+Claude Code reads `PIPELINE.md` and executes each stage autonomously. Requires `ANTHROPIC_API_KEY`.
 
 ```bash
 claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
@@ -176,232 +65,347 @@ claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
 claude -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
 ```
 
-Run a single stage at any time — useful when iterating on requirements:
+The same `claude -p "Execute stage: X from PIPELINE.md"` command works identically in any CI tool — GitHub Actions, GitLab CI, Jenkins, Bitbucket. Only the secret injection and artifact syntax differ.
+
+### Mode B — Pure CI (Python scripts, no Claude needed)
+
+The `ci/` directory contains deterministic Python scripts that run the same stages without any LLM. Requires only `LT_USERNAME` and `LT_ACCESS_KEY`.
 
 ```bash
-# Re-analyze after editing requirements/search.txt
-claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
+python ci/analyze_requirements.py       # Stage 1: runs Kane CLI against requirements/search.txt
+python ci/manage_scenarios.py           # Stage 2: diffs and updates scenarios/scenarios.json
+python ci/generate_tests_from_scenarios.py  # Stage 3: writes tests/selenium/test_credit_cards.py
+python ci/select_tests.py               # Stage 4: writes reports/pytest_selection.txt
+python ci/build_traceability.py         # Stage 5a: generates reports/traceability_matrix.md
+python ci/release_recommendation.py    # Stage 5b: generates reports/release_recommendation.md
+```
 
-# Regenerate tests after scenarios change
-claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
+The checked-in GitHub Actions workflow at [`.github/workflows/agentic-sdlc.yml`](.github/workflows/agentic-sdlc.yml) uses **Mode B** — no `ANTHROPIC_API_KEY` required.
 
-# Rebuild the traceability matrix after a test run
-claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
+---
+
+## Pipeline architecture
+
+```
+requirements/search.txt  (plain English user story)
+        |
+        v
+[Stage 1: ANALYZE] ci/analyze_requirements.py
+  Kane AI browses live site, confirms each AC is observable
+  Output: requirements/analyzed_requirements.json
+        |
+        v
+[Stage 2: MANAGE] ci/manage_scenarios.py
+  Diffs scenarios.json — updates changed, adds new, deprecates removed
+  Output: scenarios/scenarios.json
+        |
+        v
+[Stage 3: GENERATE] ci/generate_tests_from_scenarios.py
+  Writes Selenium Python tests for every new or changed scenario
+  Output: tests/selenium/test_credit_cards.py
+        |
+        v
+[Stage 4: SELECT + EXECUTE] ci/select_tests.py + HyperExecute
+  Selects tests to run, submits to HyperExecute (4 parallel VMs)
+  Output: reports/junit/*.xml  reports/html/*.html
+        |
+        v
+[Stage 5: REPORT] ci/build_traceability.py + ci/release_recommendation.py
+  Requirement -> Scenario -> Test -> Result matrix
+  GREEN / YELLOW / RED release verdict
+  Output: reports/traceability_matrix.md  reports/release_recommendation.md
 ```
 
 ---
 
-## Running Tests Directly
+## Repository structure
 
-### Locally — headless Chrome, no LambdaTest grid
-
-```bash
-pytest tests/selenium/ -v
+```
+.
+├── PIPELINE.md                              # Natural language stage instructions for Claude
+├── CLAUDE.md                                # Claude Code project config
+├── LICENSE                                  # MIT License
+├── hyperexecute.yaml                        # HyperExecute cloud execution config
+├── requirements.txt                         # Python dependencies
+│
+├── requirements/
+│   └── search.txt                           # INPUT: plain-English requirements
+│
+├── scenarios/
+│   └── scenarios.json                       # Managed test scenarios (auto-updated)
+│
+├── kane/
+│   └── objectives.json                      # Kane CLI objectives per scenario
+│
+├── ci/                                      # Pure CI stage scripts (no LLM needed)
+│   ├── analyze_requirements.py
+│   ├── manage_scenarios.py
+│   ├── generate_tests_from_scenarios.py
+│   ├── select_tests.py
+│   ├── build_traceability.py
+│   ├── release_recommendation.py
+│   ├── analyze_hyperexecute_failures.py
+│   ├── run_pytest_node.py
+│   └── write_github_summary.py
+│
+├── tests/selenium/
+│   ├── conftest.py                          # pytest fixtures + LambdaTest WebDriver
+│   ├── pages/
+│   │   └── credit_cards_page.py             # Page Object Model
+│   └── test_credit_cards.py                 # Selenium test cases (auto-generated)
+│
+├── reports/                                 # Runtime output — gitignored
+│   ├── traceability_matrix.md
+│   └── release_recommendation.md
+│
+└── .github/workflows/
+    └── agentic-sdlc.yml                     # 5-stage GitHub Actions pipeline (Pure CI)
 ```
 
-### Single test case
+---
+
+## Prerequisites
+
+| Tool | Required for | Install |
+|---|---|---|
+| Node.js 18+ | Kane CLI | [nodejs.org](https://nodejs.org) |
+| Python 3.11+ | CI scripts + Selenium | [python.org](https://python.org) |
+| Kane CLI | Stages 1 + 5 | `npm install -g @testmuai/kane-cli` |
+| Claude Code | Mode A (agentic) only | `npm install -g @anthropic-ai/claude-code` |
+| Google Chrome | Local Selenium runs | [google.com/chrome](https://www.google.com/chrome) |
+
+---
+
+## Setup
+
+### 1. Clone and install
 
 ```bash
-pytest tests/selenium/test_credit_cards.py::test_sc_001_navigate_to_credit_cards_and_view_list -v
+git clone https://github.com/lambdapro/agentic-sdlc-kane-claude-hyperexecute.git
+cd agentic-sdlc-kane-claude-hyperexecute
+
+# Install Kane CLI (required for all modes)
+npm install -g @testmuai/kane-cli
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Optional: install Claude Code for agentic mode
+npm install -g @anthropic-ai/claude-code
 ```
 
-### Filter by scenario keyword
+### 2. Set credentials
 
 ```bash
-pytest tests/selenium/ -v -k "sc_001 or sc_002"
+export LT_USERNAME=your_lambdatest_username
+export LT_ACCESS_KEY=your_lambdatest_access_key
+
+# Only needed for agentic mode (Mode A)
+export ANTHROPIC_API_KEY=your_anthropic_api_key
 ```
 
-### With HTML report
+Persist across sessions:
 
 ```bash
-pytest tests/selenium/ -v --html=reports/results.html --self-contained-html
+echo 'export LT_USERNAME=your_lambdatest_username' >> ~/.zshrc
+echo 'export LT_ACCESS_KEY=your_lambdatest_access_key' >> ~/.zshrc
+echo 'export ANTHROPIC_API_KEY=your_anthropic_api_key' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-### On LambdaTest remote grid
+| Credential | Where to get it |
+|---|---|
+| `LT_USERNAME` | [LambdaTest Dashboard > Settings > Keys](https://accounts.lambdatest.com/security) |
+| `LT_ACCESS_KEY` | Same page |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
+
+### 3. Add GitHub secrets
+
+In your fork: **Settings > Secrets and variables > Actions > New repository secret**
+
+| Secret name | Value |
+|---|---|
+| `LT_USERNAME` | Your LambdaTest username |
+| `LT_ACCESS_KEY` | Your LambdaTest access key |
+
+`ANTHROPIC_API_KEY` is **not** required for the GitHub Actions pipeline (it uses Pure CI mode).
+
+---
+
+## GitHub Actions — automatic trigger
+
+Push any change to `requirements/search.txt` and the full 5-stage pipeline runs automatically.
 
 ```bash
-export LT_USERNAME=your_username
-export LT_ACCESS_KEY=your_access_key
-
-pytest tests/selenium/ -v --html=reports/results.html --self-contained-html
+vim requirements/search.txt     # add or edit a requirement
+git add requirements/search.txt
+git commit -m "feat: add new acceptance criterion"
+git push
 ```
 
-### On HyperExecute — parallel cloud execution across 4 VMs
+Watch it run: **GitHub > Actions > Pure CI Pipeline**
+
+### Manual trigger
+
+Go to **Actions > Pure CI Pipeline > Run workflow**. Set `full_run` to `true` to run all scenarios (not just changed ones).
+
+---
+
+## Running locally
+
+### Full pipeline — Pure CI mode (no Claude needed)
 
 ```bash
-# Linux
+python ci/analyze_requirements.py
+python ci/manage_scenarios.py
+python ci/generate_tests_from_scenarios.py
+python ci/select_tests.py
+```
+
+Then run on HyperExecute:
+
+```bash
+# Linux / macOS
 curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
 chmod +x hyperexecute
-
-# macOS
-# curl -O https://downloads.lambdatest.com/hyperexecute/darwin/hyperexecute
-# chmod +x hyperexecute
+./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
 
 # Windows PowerShell
-# Invoke-WebRequest -Uri https://downloads.lambdatest.com/hyperexecute/windows/hyperexecute.exe -OutFile hyperexecute.exe
+Invoke-WebRequest -Uri https://downloads.lambdatest.com/hyperexecute/windows/hyperexecute.exe -OutFile hyperexecute.exe
+./hyperexecute.exe --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
+```
 
-./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
+Then generate reports:
+
+```bash
+python ci/build_traceability.py
+python ci/release_recommendation.py
+cat reports/release_recommendation.md
+```
+
+### Full pipeline — Agentic mode (Claude orchestrates)
+
+```bash
+claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
+claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
+claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
+claude -p "Execute stage: SELECT_TESTS from PIPELINE.md"
+claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
+claude -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
+```
+
+### Selenium only — run tests directly
+
+```bash
+# All tests, local headless Chrome
+pytest tests/selenium/ -v
+
+# Single test
+pytest tests/selenium/test_credit_cards.py::test_sc_001_navigate_to_credit_cards_and_view_list -v
+
+# With HTML report
+pytest tests/selenium/ -v --html=reports/results.html --self-contained-html
+
+# On LambdaTest remote grid
+LT_USERNAME=your_user LT_ACCESS_KEY=your_key pytest tests/selenium/ -v
 ```
 
 ---
 
-## Kane CLI — Manual Scenario Verification
-
-Run any scenario objective directly against the live site and get a structured result:
+## Kane CLI — verify any requirement manually
 
 ```bash
-# SC-001: Verify credit card listing is visible
+# Verify AC-001: card listing visible
 kane-cli run \
   "Navigate to the credit cards section of americanexpress.com and verify a list of available credit cards is displayed" \
   --url https://www.americanexpress.com/ \
   --username $LT_USERNAME --access-key $LT_ACCESS_KEY \
   --agent --headless --timeout 120
 
-# SC-002: Verify filters work
-kane-cli run \
-  "Navigate to the credit cards section of americanexpress.com, apply a Travel filter, and verify filtered card results appear" \
-  --url https://www.americanexpress.com/ \
-  --username $LT_USERNAME --access-key $LT_ACCESS_KEY \
-  --agent --headless --timeout 120
+# Parse result
+kane-cli run "..." --agent --headless 2>/dev/null | tail -1 | jq '{status, one_liner, duration}'
 
-# SC-004: Verify card highlights visible without logging in
-kane-cli run \
-  "Navigate to the credit cards section of americanexpress.com and verify card highlights are visible without logging in" \
-  --url https://www.americanexpress.com/ \
-  --username $LT_USERNAME --access-key $LT_ACCESS_KEY \
-  --agent --headless --timeout 120
-```
-
-Parse the result of any Kane run:
-
-```bash
-kane-cli run "..." --agent --headless 2>/dev/null | tail -1 | jq \
-  '{status, one_liner, duration, final_state}'
-```
-
-Run all Kane objectives in parallel:
-
-```bash
+# Run all Kane objectives in parallel
 RESULTS_DIR=$(mktemp -d)
-
 for obj in $(jq -r '.[] | @base64' kane/objectives.json); do
   data=$(echo "$obj" | base64 --decode)
   id=$(echo "$data" | jq -r '.scenario_id')
-  objective=$(echo "$data" | jq -r '.objective')
-  url=$(echo "$data" | jq -r '.url')
-  timeout=$(echo "$data" | jq -r '.timeout')
-
-  kane-cli run "$objective" \
-    --url "$url" \
+  kane-cli run \
+    "$(echo "$data" | jq -r '.objective')" \
+    --url "$(echo "$data" | jq -r '.url')" \
     --username $LT_USERNAME --access-key $LT_ACCESS_KEY \
-    --agent --headless --timeout "$timeout" \
+    --agent --headless --timeout "$(echo "$data" | jq -r '.timeout')" \
     > "$RESULTS_DIR/$id.ndjson" 2>&1 &
 done
-
 wait
-
-echo "| Scenario | Status | Duration | Summary |"
-echo "|----------|--------|----------|---------|"
 for f in "$RESULTS_DIR"/*.ndjson; do
   id=$(basename "$f" .ndjson)
   result=$(tail -1 "$f")
-  status=$(echo "$result" | jq -r '.status')
-  duration=$(echo "$result" | jq -r '.duration')
-  summary=$(echo "$result" | jq -r '.one_liner')
-  echo "| $id | $status | ${duration}s | $summary |"
+  echo "$id | $(echo "$result" | jq -r '.status') | $(echo "$result" | jq -r '.one_liner')"
 done
 ```
 
 ---
 
-## GitHub Actions
+## Model Context Protocol (MCP)
 
-The pipeline triggers automatically when any file in `requirements/` is changed.
+Allow Claude to query LambdaTest directly from the chat interface — list tests, check run status, pull logs.
 
-The checked-in workflow at `.github/workflows/agentic-sdlc.yml` is now the canonical pure-CI pipeline.
-The GitHub runner handles analysis, scenario management, test generation, and test selection.
-The Selenium execution stage runs on HyperExecute, not in the runner browser, and a follow-up analysis job consumes HyperExecute logs and downloaded artifacts.
+Add to `claude_desktop_config.json` or your MCP settings:
 
-### Required secrets — Settings → Secrets and variables → Actions
-
-| Secret | Description |
-|---|---|
-| `LT_USERNAME` | LambdaTest username |
-| `LT_ACCESS_KEY` | LambdaTest access key |
-
-`ANTHROPIC_API_KEY` is not required for the GitHub Actions pipeline.
-
-### Trigger the pipeline by pushing a requirement change
-
-```bash
-# Edit requirements
-vim requirements/search.txt
-
-git add requirements/search.txt
-git commit -m "feat: update credit card browsing requirements"
-git push
+```json
+{
+  "mcpServers": {
+    "mcp-lambdatest-stdio": {
+      "disabled": false,
+      "timeout": 100,
+      "command": "npx",
+      "args": ["-y", "mcp-lambdatest", "--transport=stdio"],
+      "env": {
+        "LT_USERNAME": "<YOUR_LT_USERNAME>",
+        "LT_ACCESS_KEY": "<YOUR_LT_ACCESS_KEY>"
+      },
+      "transportType": "stdio"
+    }
+  }
+}
 ```
 
-This triggers the pure CI pipeline automatically.
-
-For manual execution, use the workflow named `Pure CI Pipeline` and set `full_run` to `true` when you want all active scenarios executed on HyperExecute.
-
-### Manual trigger — run all tests
-
-Go to **Actions → Agentic SDLC Pipeline → Run workflow**, check **"Run all tests"**, and click **Run workflow**. This includes all active scenarios, not just changed ones.
-
 ---
 
-### Pure CI variant on GitHub Actions
+## Adapting to other CI/CD tools
 
-Use the snippets in `PIPELINE.md` to split the workflow into these jobs:
-
-1. `analyze`
-2. `manage`
-3. `generate`
-4. `select`
-5. `execute`
-6. `report`
-
-The current repository does not yet include the helper scripts referenced by the Pure CI examples, such as `ci/generate_tests_from_scenarios.py`, `ci/build_traceability.py`, and `ci/release_recommendation.py`.
-That means the new section is ready as a GitHub Actions design and copy/paste starting point, while `.github/workflows/agentic-sdlc.yml` remains the runnable workflow that is checked in today.
-
----
-
-## Adapting to Other CI/CD Tools
-
-The checked-in implementation is now a single pure-CI path in `.github/workflows/agentic-sdlc.yml`.
-It runs `analyze`, `manage`, `generate`, and `select` on the GitHub runner, executes Selenium on HyperExecute, then uses downloaded HyperExecute artifacts plus JUnit output to build failure analysis and release reports.
-
-Every stage is one portable command. Copy it verbatim into any CI tool's job definition.
+Each stage is a single portable command. Copy it into any CI tool:
 
 ### GitLab CI
 
 ```yaml
-stages:
-  - analyze
-  - scenarios
-  - tests
-  - execute
-  - report
+stages: [analyze, scenarios, tests, execute, report]
 
 analyze-requirements:
   stage: analyze
-  image: node:20
+  image: node:22
   script:
-    - npm install -g @testmuai/kane-cli @anthropic-ai/claude-code
-    - claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
+    - npm install -g @testmuai/kane-cli
+    - pip install -r requirements.txt
+    - python ci/analyze_requirements.py
   artifacts:
     paths: [requirements/analyzed_requirements.json]
+  variables:
+    LT_USERNAME: $LT_USERNAME
+    LT_ACCESS_KEY: $LT_ACCESS_KEY
 
 manage-scenarios:
   stage: scenarios
-  image: node:20
+  image: python:3.11
   script:
-    - npm install -g @anthropic-ai/claude-code
-    - claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
+    - pip install -r requirements.txt
+    - python ci/manage_scenarios.py
   artifacts:
     paths: [scenarios/scenarios.json]
+
+# Agentic variant — add ANTHROPIC_API_KEY and swap script line:
+# script: claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
 ```
 
 ### Jenkins (Declarative Pipeline)
@@ -410,36 +414,27 @@ manage-scenarios:
 pipeline {
     agent any
     environment {
-        LT_USERNAME     = credentials('lt-username')
-        LT_ACCESS_KEY   = credentials('lt-access-key')
-        ANTHROPIC_API_KEY = credentials('anthropic-api-key')
+        LT_USERNAME   = credentials('lt-username')
+        LT_ACCESS_KEY = credentials('lt-access-key')
     }
     stages {
-        stage('Analyze Requirements') {
-            steps { sh 'claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"' }
-        }
-        stage('Manage Scenarios') {
-            steps { sh 'claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"' }
-        }
-        stage('Generate Tests') {
-            steps { sh 'claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"' }
-        }
-        stage('Execute on HyperExecute') {
+        stage('Analyze')  { steps { sh 'python ci/analyze_requirements.py' } }
+        stage('Manage')   { steps { sh 'python ci/manage_scenarios.py' } }
+        stage('Generate') { steps { sh 'python ci/generate_tests_from_scenarios.py' } }
+        stage('Execute')  {
             steps {
                 sh 'curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute && chmod +x hyperexecute'
                 sh './hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml'
             }
         }
-        stage('Traceability + Recommendation') {
+        stage('Report') {
             steps {
-                sh 'claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"'
-                sh 'claude -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"'
+                sh 'python ci/build_traceability.py'
+                sh 'python ci/release_recommendation.py'
             }
         }
     }
-    post {
-        always { archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true }
-    }
+    post { always { archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true } }
 }
 ```
 
@@ -449,59 +444,81 @@ pipeline {
 pipelines:
   default:
     - step:
-        name: Analyze Requirements
-        image: node:20
+        name: Analyze + Manage + Generate
+        image: python:3.11
         script:
-          - npm install -g @testmuai/kane-cli @anthropic-ai/claude-code
-          - claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
-        artifacts: [requirements/analyzed_requirements.json]
+          - pip install -r requirements.txt
+          - npm install -g @testmuai/kane-cli
+          - python ci/analyze_requirements.py
+          - python ci/manage_scenarios.py
+          - python ci/generate_tests_from_scenarios.py
     - step:
-        name: Manage Scenarios
-        image: node:20
+        name: Execute on HyperExecute
         script:
-          - npm install -g @anthropic-ai/claude-code
-          - claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
+          - curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute && chmod +x hyperexecute
+          - ./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
 ```
 
 ---
 
-## Traceability Matrix
+## Traceability matrix (auto-generated)
 
-After a pipeline run, `reports/traceability_matrix.md` maps every requirement to its result:
+`reports/traceability_matrix.md` maps every requirement to its end-to-end result:
 
-| Requirement | Acceptance Criterion | Scenario | Test Case | Kane AI | Selenium | Status |
-|---|---|---|---|---|---|---|
-| Browse credit cards | View list of cards | SC-001 | TC-001 | Passed | Passed | ✅ |
-| Filter cards | Apply category filters | SC-002 | TC-002 | Passed | Passed | ✅ |
-| View card details | Click card → detail page | SC-003 | TC-003 | Failed | Flaky | ⚠️ |
-| No-login highlights | Highlights without login | SC-004 | TC-004 | Passed | Passed | ✅ |
-| Relevant results | Results match filter | SC-005 | TC-005 | Passed | Passed | ✅ |
+| Requirement | Scenario | Test Case | Kane AI | Selenium | Status |
+|---|---|---|---|---|---|
+| Navigate to credit cards and view list | SC-001 | TC-001 | Passed | Passed | Green |
+| Use filters to refine results | SC-002 | TC-002 | Passed | Passed | Green |
+| Click card to view details | SC-003 | TC-003 | Failed | Flaky | Yellow |
+| View highlights without login | SC-004 | TC-004 | Passed | Passed | Green |
+| Relevant results for selected filter | SC-005 | TC-005 | Failed | Pending | Yellow |
 
-`reports/release_recommendation.md` gives the final **GREEN / YELLOW / RED** verdict with reasoning.
+`reports/release_recommendation.md` gives the final verdict:
+
+```
+VERDICT: YELLOW — 3/5 requirements fully verified. SC-003 and SC-005 require investigation
+before release. All other acceptance criteria confirmed on the live site.
+```
 
 ---
 
-## Scenario and Test Mapping
+## Scenario and test mapping
 
-| Scenario | Test Function | Acceptance Criterion |
+| Scenario | Test function | Acceptance criterion |
 |---|---|---|
-| SC-001 | `test_sc_001_navigate_to_credit_cards_and_view_list` | Navigate to credit cards and view list |
-| SC-002 | `test_sc_002_filter_cards_by_category` | Use filters to refine results |
-| SC-003 | `test_sc_003_click_card_view_details` | Click card to view details (benefits, fees, rewards) |
-| SC-004 | `test_sc_004_card_highlights_visible_without_login` | View highlights without logging in |
-| SC-005 | `test_sc_005_relevant_results_for_selected_filter` | Relevant results for selected filter |
+| SC-001 | `test_sc_001_navigate_to_credit_cards_and_view_list` | Navigate and view card list |
+| SC-002 | `test_sc_002_filter_cards_by_category` | Filter cards by category |
+| SC-003 | `test_sc_003_click_card_view_details` | Click card to view details |
+| SC-004 | `test_sc_004_card_highlights_visible_without_login` | Highlights visible without login |
+| SC-005 | `test_sc_005_relevant_results_for_selected_filter` | Relevant results per filter |
 
 ---
 
-## Adding New Requirements
+## Adding new requirements
 
-1. Edit `requirements/search.txt` — add new user stories or acceptance criteria
-2. Push the change — GitHub Actions triggers automatically, **or** run locally:
+1. Edit `requirements/search.txt` — add new user stories or acceptance criteria in plain English
+2. Commit and push:
 
 ```bash
-claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
-claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
-claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
+git add requirements/search.txt
+git commit -m "feat: add requirement for card comparison table"
+git push
 ```
 
-New scenarios and Selenium test cases are created automatically. No manual scripting needed.
+GitHub Actions automatically runs all 5 stages. New scenarios and Selenium tests are generated with no manual scripting.
+
+To run just the affected stages locally:
+
+```bash
+python ci/analyze_requirements.py
+python ci/manage_scenarios.py
+python ci/generate_tests_from_scenarios.py
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+Built with [Kane AI](https://lambdatest.com/kane-ai), [HyperExecute](https://lambdatest.com/hyperexecute), and [Claude Code](https://claude.ai/code).

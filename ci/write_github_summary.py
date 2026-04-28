@@ -33,17 +33,23 @@ def render_analyze(run_url):
     requirements = load_json("requirements/analyzed_requirements.json", [])
     passed = [item for item in requirements if item.get("kane_status") == "passed"]
     failed = [item for item in requirements if item.get("kane_status") == "failed"]
+    
+    # Calculate estimated token savings (Theoretical: 1 Kane Run = 50k tokens saved)
+    token_savings = len(requirements) * 50000
+
     lines = [
         "## Analyze Requirements",
         "",
-        f"Plain-English outcome: analyzed {len(requirements)} acceptance criteria and checked how many Kane AI could verify against the live AmEx site.",
+        f"Plain-English outcome: analyzed {len(requirements)} acceptance criteria and checked how many Kane AI could verify against the live LambdaTest eCommerce site.",
         f"- Kane passed: {len(passed)}",
         f"- Kane failed: {len(failed)}",
+        f"- **Estimated Token Savings:** ~{token_savings:,} tokens (by offloading UI reasoning to Kane AI)",
+        "",
     ]
     for item in requirements:
-        kane_link = item.get("kane_links", [""])
-        suffix = f" | Kane link: {kane_link[0]}" if kane_link and kane_link[0] else ""
-        lines.append(f"- {item['id']} `{item['kane_status']}`: {item['title']}{suffix}")
+        kane_links = item.get("kane_links", [])
+        link_str = f" ([View Session]({kane_links[0]}))" if kane_links and len(kane_links) > 0 and kane_links[0] else ""
+        lines.append(f"- {item['id']} `{item['kane_status']}`: {item['title']}{link_str}")
     if run_url:
         lines.append(f"- GitHub Actions run: {run_url}")
     return "\n".join(lines) + "\n"

@@ -1,13 +1,13 @@
 import argparse
-import re
 import json
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-AMEX_URL = "https://www.americanexpress.com/"
+TARGET_URL = "https://ecommerce-playground.lambdatest.io/"
 
 
 def parse_args():
@@ -34,11 +34,11 @@ def extract_acceptance_criteria(text):
         next_line = criteria[i + 1] if i + 1 < len(criteria) else None
         if (
             next_line
-            and "navigate to the credit cards section" in current.lower()
-            and "view a list of available credit cards" in next_line.lower()
+            and "navigate to the products section" in current.lower()
+            and "view a list of available products" in next_line.lower()
         ):
             combined.append(
-                "User can navigate to the credit cards section of amex.com and view a list of available credit cards"
+                "User can navigate to the products section of the site and view a list of available products"
             )
             i += 2
             continue
@@ -49,35 +49,18 @@ def extract_acceptance_criteria(text):
 
 def make_title(description):
     lowered = description.lower()
-    if "view a list of available credit cards" in lowered:
-        return "Navigate to credit cards section and view card list"
+    if "view a list of available products" in lowered:
+        return "Navigate to products section and view product list"
     if "use filters" in lowered:
-        return "Use filters to refine credit card results"
-    if "click on a credit card" in lowered:
-        return "Click a credit card to view details including benefits fees and rewards"
+        return "Use filters to refine product results"
+    if "click on a product" in lowered:
+        return "Click a product to view details including price and description"
     if "without logging in" in lowered:
-        return "View card highlights and comparison without logging in"
+        return "View product highlights without logging in"
     if "selected filters or search criteria" in lowered:
         return "Relevant results based on selected filters"
     words = description.replace(".", "").split()
     return " ".join(words[:10]).strip().capitalize()
-
-
-def make_kane_objective(description):
-    return (
-        f"Open {AMEX_URL}. "
-        f"Then verify this acceptance criterion on the live site: {description}. "
-        "Use plain-English validation and finish with a clear pass or fail outcome."
-    )
-
-
-def parse_last_json_line(lines):
-    for line in reversed(lines):
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    return None
 
 
 def run_kane(description):
@@ -89,6 +72,7 @@ def run_kane(description):
             "summary": "Skipped Kane run because LT credentials were not available.",
             "final_state": {},
             "duration": None,
+            "link": ""
         }
 
     command = [
@@ -96,7 +80,9 @@ def run_kane(description):
         "-y",
         "@testmuai/kane-cli@latest",
         "run",
-        make_kane_objective(description),
+        description,
+        "--url",
+        TARGET_URL,
         "--username",
         username,
         "--access-key",
@@ -109,10 +95,6 @@ def run_kane(description):
         "15",
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    combined_output = "\n".join(
-        part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
-    )
-    links = re.findall(r"https?://\S+", combined_output)
     lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
     if not lines:
         stderr = completed.stderr.strip() or "Kane CLI did not emit a parseable result."
@@ -121,17 +103,18 @@ def run_kane(description):
             "summary": stderr,
             "final_state": {},
             "duration": None,
-            "links": links,
+            "link": ""
         }
 
-    payload = parse_last_json_line(lines)
-    if payload is None:
+    try:
+        payload = json.loads(lines[-1])
+    except json.JSONDecodeError:
         return {
             "status": "failed",
-            "summary": combined_output or lines[-1],
+            "summary": lines[-1],
             "final_state": {},
             "duration": None,
-            "links": links,
+            "link": ""
         }
 
     return {
@@ -139,7 +122,7 @@ def run_kane(description):
         "summary": payload.get("one_liner", ""),
         "final_state": payload.get("final_state", {}),
         "duration": payload.get("duration"),
-        "links": links,
+        "link": payload.get("link", ""),
     }
 
 
@@ -151,27 +134,30 @@ def main():
 
     analyzed = []
     kane_results = []
-    for index, description in enumerate(criteria, start=1):
-        kane = {
+
+    if args.skip_kane:
+        results = [{
             "status": "pending",
             "summary": "Kane run not attempted.",
             "final_state": {},
             "duration": None,
-            "links": [],
-        }
-        if not args.skip_kane:
-            kane = run_kane(description)
+            "link": ""
+        } for _ in criteria]
+    else:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(run_kane, criteria))
 
+    for index, (description, kane) in enumerate(zip(criteria, results), start=1):
         item = {
             "id": f"AC-{index:03d}",
             "title": make_title(description),
             "description": description,
-            "url": AMEX_URL,
+            "url": TARGET_URL,
             "kane_status": kane["status"],
             "kane_summary": kane["summary"],
             "kane_final_state": kane["final_state"],
             "kane_duration": kane["duration"],
-            "kane_links": kane["links"],
+            "kane_links": [kane["link"]] if kane["link"] else [],
             "last_analyzed": today,
         }
         analyzed.append(item)
@@ -183,8 +169,8 @@ def main():
                 "summary": item["kane_summary"],
                 "final_state": item["kane_final_state"],
                 "duration": item["kane_duration"],
+                "link": kane["link"],
                 "url": item["url"],
-                "links": item["kane_links"],
             }
         )
 

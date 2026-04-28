@@ -19,15 +19,15 @@ Instructions:
    - id: sequential (AC-001, AC-002, ...)
    - title: short label
    - description: full acceptance criterion text
-   - url: https://www.americanexpress.com/
+   - url: https://ecommerce-playground.lambdatest.io/
 3. For each acceptance criterion, run a kane-cli verification:
    ```
-   kane-cli run "<criterion as objective>" --url https://www.americanexpress.com/ \
+   kane-cli run "<criterion as objective>" --url https://ecommerce-playground.lambdatest.io/ \
      --username $LT_USERNAME --access-key $LT_ACCESS_KEY \
      --agent --headless --timeout 120 --max-steps 15
    ```
 4. Parse the run_end event (last line of stdout) for each kane run:
-   - Record status (passed/failed), one_liner, final_state, duration
+   - Record status (passed/failed), one_liner, final_state, duration, link
 5. Write output to `requirements/analyzed_requirements.json` with schema:
    ```json
    [
@@ -35,15 +35,16 @@ Instructions:
        "id": "AC-001",
        "title": "...",
        "description": "...",
-       "url": "https://www.americanexpress.com/",
+       "url": "https://ecommerce-playground.lambdatest.io/",
        "kane_status": "passed|failed",
        "kane_summary": "...",
        "kane_final_state": {},
+       "kane_links": ["https://testmu.lambdatest.com/ai/session/..."],
        "last_analyzed": "<ISO date>"
      }
    ]
    ```
-6. Print a summary table: requirement ID, title, Kane status
+6. Print a summary table: requirement ID, title, Kane status, Kane Link
 
 ---
 
@@ -68,14 +69,14 @@ Instructions:
      "requirement_id": "AC-001",
      "title": "<short descriptive title>",
      "steps": [
-       "Navigate to americanexpress.com",
+       "Navigate to ecommerce-playground.lambdatest.io",
        "Click on credit cards navigation link",
        "Verify card listing section appears with multiple tiles"
      ],
      "expected_result": "<what success looks like>",
      "status": "new|active|updated|deprecated",
      "kane_objective": "<full plain-English objective for kane-cli run>",
-     "kane_url": "https://www.americanexpress.com/",
+     "kane_url": "https://ecommerce-playground.lambdatest.io/",
      "test_case_id": "TC-001",
      "last_verified": "<ISO date>"
    }
@@ -147,7 +148,7 @@ Instructions:
 4. Load pytest HTML/JSON report from `reports/` (parse junit XML if present, else infer from artifacts)
 5. Load kane-cli results from `reports/kane_results.json` if present
 6. Build the matrix table with columns:
-   Requirement ID | Acceptance Criterion | Scenario ID | Test Case ID | Kane AI Result | Selenium Result | Overall
+   Requirement ID | Acceptance Criterion | Scenario ID | Test Case ID | Kane AI Result | Kane Link | Selenium Result | Overall
 7. Compute:
    - Total requirements covered
    - Pass rate (passed / total executed)
@@ -190,3 +191,136 @@ Instructions:
    <Plain English paragraph: should QA sign off or not, and why>
    ```
 5. Print the verdict and one-line reason to stdout
+
+---
+
+## Pure CI Variant (No Claude Code)
+
+This section provides an equivalent, pure CI implementation of the same stages without using `claude -p`. Use these snippets directly in your CI job steps. Secrets must still be provided via CI secret stores (`LT_USERNAME`, `LT_ACCESS_KEY`, `ANTHROPIC_API_KEY` if needed).
+
+Notes:
+- Always use `--agent --headless` for `kane-cli` runs in CI.
+- Set `--timeout` and `--max-steps` to prevent hanging runs.
+- Upload `~/.testmuai/kaneai/sessions/` or `reports/` as artifacts for debugging failures.
+
+---
+
+### ANALYZE_REQUIREMENTS (CI)
+
+Install dependencies, then run a kane-cli check for each requirement/objective. Example (POSIX shell):
+
+```bash
+# Install tools
+npm install -g @testmuai/kane-cli
+
+# If you keep kane/objectives.json, iterate it; else generate objectives from requirements/*.txt
+RESULTS_DIR=$(mktemp -d)
+for obj in $(jq -c '.[]' kane/objectives.json); do
+   id=$(echo "$obj" | jq -r '.scenario_id')
+   objective=$(echo "$obj" | jq -r '.objective')
+   kane-cli run "$objective" \
+      --url https://ecommerce-playground.lambdatest.io/ \
+      --username "$LT_USERNAME" --access-key "$LT_ACCESS_KEY" \
+      --agent --headless --timeout 120 --max-steps 15 > "$RESULTS_DIR/${id}.ndjson" 2>&1 &
+done
+wait
+
+# Parse last line of each ndjson into a JSON array
+jq -s 'map(try (fromjson) catch null)' "$RESULTS_DIR"/*.ndjson > requirements/analyzed_requirements.json || true
+
+# Print Summary Table
+echo "| ID | Status | Time | Link | Summary |"
+echo "|----|--------|------|------|---------|"
+for f in "$RESULTS_DIR"/*.ndjson; do
+  result=$(tail -1 "$f")
+  id=$(basename "$f" .ndjson)
+  status=$(echo "$result" | jq -r '.status')
+  duration=$(echo "$result" | jq -r '.duration')
+  link=$(echo "$result" | jq -r '.link')
+  summary=$(echo "$result" | jq -r '.one_liner')
+  echo "| $id | $status | ${duration}s | [View]($link) | $summary |"
+done
+
+rm -rf "$RESULTS_DIR"
+```
+
+### MANAGE_SCENARIOS (CI)
+
+Run a small script to reconcile `requirements/analyzed_requirements.json` → `scenarios/scenarios.json`. Example using Python:
+
+```bash
+python3 - <<'PY'
+import json, pathlib
+req = json.loads(pathlib.Path('requirements/analyzed_requirements.json').read_text())
+scn_path = pathlib.Path('scenarios/scenarios.json')
+scenarios = json.loads(scn_path.read_text()) if scn_path.exists() else []
+# reconciliation logic (same rules as agent version)
+... # implement minimal reconciliation or reuse existing project script
+PY
+```
+
+(You can commit a small helper script `ci/manage_scenarios.py` and call it here.)
+
+### GENERATE_TESTS (CI)
+
+Use a generator script to write/update `tests/selenium/test_credit_cards.py` and `kane/objectives.json`. Example:
+
+```bash
+python3 ci/generate_tests_from_scenarios.py --scenarios scenarios/scenarios.json --out tests/selenium/test_credit_cards.py
+```
+
+### SELECT_TESTS (CI)
+
+Build `reports/test_execution_manifest.json` and `reports/pytest_selection.txt` (one pytest node per line). Example (bash):
+
+```bash
+# Full run or incremental
+if [ "$FULL_RUN" = "true" ]; then
+   jq -r '.[] | "tests/selenium/test_credit_cards.py::test_\(.id|ascii_downcase)"' scenarios/scenarios.json > reports/pytest_selection.txt
+else
+   jq -r '.[] | select(.status=="new" or .status=="updated") | "tests/selenium/test_credit_cards.py::test_\(.id|ascii_downcase)"' scenarios/scenarios.json > reports/pytest_selection.txt
+fi
+```
+
+### EXECUTE TESTS (CI)
+
+Run Selenium tests locally (headless) or on HyperExecute / LambdaTest grid.
+
+Option A — run pytest directly (local runner with Chrome installed):
+
+```bash
+pytest -q -k "$(paste -sd ' or ' reports/pytest_selection.txt)" --html=reports/results.html --self-contained-html
+```
+
+Option B — run via HyperExecute (parallel cloud):
+
+```bash
+# Ensure hyperexecute binary present in runner
+./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
+```
+
+(Note: Ensure `hyperexecute.yaml` uses a robust testDiscovery command — avoid `echo -e`. Use a Python here-doc, as shown in the repo's `hyperexecute.yaml`.)
+
+### TRACEABILITY_REPORT (CI)
+
+Collect artifacts and produce the traceability matrix as before. Example:
+
+```bash
+python3 ci/build_traceability.py \
+   --requirements requirements/analyzed_requirements.json \
+   --scenarios scenarios/scenarios.json \
+   --pytest-reports reports/ --kane-results reports/kane_results.json \
+   --out reports/traceability_matrix.md
+```
+
+### RELEASE_RECOMMENDATION (CI)
+
+Run the same analyzer script used by the agent version to compute the GREEN/YELLOW/RED verdict and write `reports/release_recommendation.md`.
+
+```bash
+python3 ci/release_recommendation.py --trace reports/traceability_matrix.md --out reports/release_recommendation.md
+```
+
+---
+
+Add these steps as separate CI jobs (analyze → manage → generate → select → execute → report) in your CI YAML. Provide secrets via the CI provider's secret manager and upload the `reports/` and `~/.testmuai/kaneai/sessions/` directories as artifacts for debugging.

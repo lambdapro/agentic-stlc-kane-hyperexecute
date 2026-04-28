@@ -4,7 +4,7 @@
     "requirement_id": "AC-001",
     "title": "Navigate to credit cards section and view available card list",
     "steps": [
-      "Navigate to https://www.americanexpress.com/",
+      "Navigate to https://ecommerce-playground.lambdatest.io/",
       "Locate and click the Credit Cards navigation link",
       "Verify the credit cards listing page loads",
       "Verify multiple card tiles are visible on the page"
@@ -23,7 +23,7 @@
     "requirement_id": "AC-002",
     "title": "Filter credit cards by category (rewards, travel, cashback)",
     "steps": [
-      "Navigate to https://www.americanexpress.com/",
+      "Navigate to https://ecommerce-playground.lambdatest.io/",
       "Go to the credit cards section",
       "Locate filter chips such as Travel, Cash Back, or Rewards",
       "Click a filter chip",
@@ -32,7 +32,7 @@
     "expected_result": "Filtered credit card results are displayed below the filter chips after applying a filter",
     "status": "updated",
     "kane_objective": "User can use filters (e.g., rewards, travel, cashback) to refine results",
-    "kane_url": "https://www.americanexpress.com/",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
     "kane_last_status": "pending",
     "test_case_id": "TC-002",
     "last_verified": "2026-04-28",
@@ -43,7 +43,7 @@
     "requirement_id": "AC-003",
     "title": "Click a credit card to view details including benefits, fees, and rewards",
     "steps": [
-      "Navigate to https://www.americanexpress.com/",
+      "Navigate to https://ecommerce-playground.lambdatest.io/",
       "Go to the credit cards section",
       "Click on any credit card tile or View Details link",
       "Verify the card detail page loads",
@@ -52,7 +52,7 @@
     "expected_result": "Card detail page is displayed showing benefits, annual fee, and rewards or points information",
     "status": "updated",
     "kane_objective": "User can click on a credit card to view details (benefits, fees, rewards)",
-    "kane_url": "https://www.americanexpress.com/",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
     "kane_last_status": "pending",
     "test_case_id": "TC-003",
     "last_verified": "2026-04-28",
@@ -63,7 +63,7 @@
     "requirement_id": "AC-004",
     "title": "View card highlights and comparison without logging in",
     "steps": [
-      "Navigate to https://www.americanexpress.com/ without logging in",
+      "Navigate to https://ecommerce-playground.lambdatest.io/ without logging in",
       "Go to the credit cards section",
       "Verify card highlights or comparison section is visible",
       "Verify no login prompt blocks the content"
@@ -71,7 +71,7 @@
     "expected_result": "Card highlights and featured benefits are visible on the credit cards page without requiring login",
     "status": "updated",
     "kane_objective": "User can see clear card comparison or highlights without logging in",
-    "kane_url": "https://www.americanexpress.com/",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
     "kane_last_status": "pending",
     "test_case_id": "TC-004",
     "last_verified": "2026-04-28",
@@ -82,7 +82,7 @@
     "requirement_id": "AC-005",
     "title": "Search results are relevant to selected filters or criteria",
     "steps": [
-      "Navigate to https://www.americanexpress.com/",
+      "Navigate to https://ecommerce-playground.lambdatest.io/",
       "Go to the credit cards section",
       "Apply a filter such as Travel",
       "Verify the displayed cards are relevant to the selected filter",
@@ -91,10 +91,6 @@
     "expected_result": "Cards shown after applying a filter are relevant to the selected category, such as travel cards appearing when the Travel filter is applied",
     "status": "updated",
     "kane_objective": "User receives relevant results based on selected filters or search criteria",
-    "kane_url": "https://www.americanexpress.com/",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
     "kane_last_status": "pending",
-    "test_case_id": "TC-005",
-    "last_verified": "2026-04-28",
-    "source_description": "User receives relevant results based on selected filters or search criteria"
-  }
-]
+ 

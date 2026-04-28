@@ -27,7 +27,7 @@ on:
         default: "true"
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
   PYTHON_VERSION: "3.11"
   RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -242,83 +242,4 @@ jobs:
           name: test-results
           path: .
 
-      - name: Build HyperExecute failure analysis
-        env:
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-        run: python ci/analyze_hyperexecute_failures.py --junit-dir reports
-
-      - name: Write HyperExecute failure summary
-        if: always()
-        run: python ci/write_github_summary.py --stage analyze-failures --run-url "${{ env.RUN_URL }}"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: failure-analysis
-          path: reports/hyperexecute_failure_analysis.md
-
-  report:
-    name: Traceability And Recommendation
-    needs: [analyze, manage, select, execute, analyze-failures]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: analyzed-requirements
-          path: .
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: managed-scenarios
-          path: scenarios
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: selection
-          path: reports
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: .
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: failure-analysis
-          path: reports
-
-      - name: Build traceability matrix
-        run: python ci/build_traceability.py --pytest-junit reports
-
-      - name: Build release recommendation
-        run: python ci/release_recommendation.py
-
-      - name: Write final summary
-        if: always()
-        run: python ci/write_github_summary.py --stage report --run-url "${{ env.RUN_URL }}"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: release-reports
-          path: |
-            reports/traceability_matrix.md
-            reports/traceability_matrix.json
-            reports/release_recommendation.md
-            reports/hyperexecute_failure_analysis.md
-
-      - name: Print release recommendation and failure analysis
-        if: always()
-        run: |
-          cat reports/release_recommendation.md 2>/dev/null || echo "Release report not generated"
-          cat reports/hyperexecute_failure_analysis.md 2>/dev/null || echo "Failure analysis not generated"
+      - name: Build Hype

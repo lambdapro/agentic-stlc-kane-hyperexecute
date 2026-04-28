@@ -1,7 +1,7 @@
 # Claude Code — Agentic SDLC Project Config
 
 ## Project Overview
-End-to-end agentic SDLC demo using Kane AI CLI + Selenium Python + HyperExecute.
+End-to-end agentic SDLC demo using Kane AI CLI + Selenium Python + HyperExecute targeting an eCommerce playground.
 Requirements drive the entire pipeline; stages are defined in PIPELINE.md.
 
 ## How to Execute a Pipeline Stage
@@ -30,7 +30,7 @@ SELECT_TESTS, TRACEABILITY_REPORT, RELEASE_RECOMMENDATION
 Always use `--agent --headless` in CI. Pass credentials via flags:
 ```bash
 kane-cli run "<objective>" \
-  --url https://www.americanexpress.com/ \
+  --url https://ecommerce-playground.lambdatest.io/ \
   --username $LT_USERNAME --access-key $LT_ACCESS_KEY \
   --agent --headless --timeout 120 --max-steps 15
 ```
@@ -50,5 +50,5 @@ Parse results: `tail -1 output.ndjson | jq .`
 - Execute hyperexecute CLI binary
 
 ## Target Application
-- URL: https://www.americanexpress.com/
-- Feature under test: Credit card browsing and search
+- URL: https://ecommerce-playground.lambdatest.io/
+- Feature under test: Product browsing and search
