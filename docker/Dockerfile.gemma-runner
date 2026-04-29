@@ -1,28 +1,22 @@
-FROM ubuntu:22.04
+# Official Ollama image — Ollama binary already installed and validated
+FROM ollama/ollama:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
 ENV OLLAMA_HOST=0.0.0.0
-ENV OLLAMA_MODELS=/root/.ollama/models
+ENV DEBIAN_FRONTEND=noninteractive
 
-# System deps
+# Add Python + pip for LiteLLM
 RUN apt-get update && apt-get install -y \
-    curl python3 python3-pip ca-certificates \
+    python3 python3-pip curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama binary directly — avoids systemd dependency in install.sh
-RUN curl -fsSL -o /usr/local/bin/ollama \
-      https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64 \
-    && chmod +x /usr/local/bin/ollama
-
-# Pull Gemma model at build time so it's baked into the image layer.
-# Run ollama serve in background, wait for it, pull, then stop cleanly.
-RUN /usr/local/bin/ollama serve & \
+# Pull Gemma model at build time — baked into image layer, zero pull at runtime
+RUN ollama serve & \
     OLLAMA_PID=$! && \
     sleep 8 && \
-    /usr/local/bin/ollama pull gemma4:e4b && \
+    ollama pull gemma4:e4b && \
     printf 'FROM gemma4:e4b\nPARAMETER num_ctx 128000\n' > /tmp/Modelfile && \
-    /usr/local/bin/ollama create gemma-local -f /tmp/Modelfile && \
-    /usr/local/bin/ollama list && \
+    ollama create gemma-local -f /tmp/Modelfile && \
+    ollama list && \
     kill $OLLAMA_PID 2>/dev/null || true
 
 # Install LiteLLM proxy
