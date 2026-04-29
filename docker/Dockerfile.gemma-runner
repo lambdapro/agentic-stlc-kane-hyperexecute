@@ -10,13 +10,14 @@ RUN apt-get update && apt-get install -y \
     build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Pull Gemma model at build time — baked into image layer, zero pull at runtime
+# Pull model at build time — baked into image layer, zero pull at runtime
+# llama3.2:3b chosen for tool-use support (gemma3 does not support tools)
 RUN ollama serve & \
     OLLAMA_PID=$! && \
     sleep 8 && \
-    ollama pull gemma3:1b && \
-    printf 'FROM gemma3:1b\nPARAMETER num_ctx 128000\n' > /tmp/Modelfile && \
-    ollama create gemma-local -f /tmp/Modelfile && \
+    ollama pull llama3.2:3b && \
+    printf 'FROM llama3.2:3b\nPARAMETER num_ctx 128000\n' > /tmp/Modelfile && \
+    ollama create llm-local -f /tmp/Modelfile && \
     ollama list && \
     kill $OLLAMA_PID 2>/dev/null || true
 
@@ -28,7 +29,7 @@ RUN mkdir -p /etc/litellm && cat > /etc/litellm/config.yaml << 'EOF'
 model_list:
   - model_name: claude-3-haiku-20240307
     litellm_params:
-      model: ollama_chat/gemma-local
+      model: ollama_chat/llm-local
       api_base: http://localhost:11434
 EOF
 

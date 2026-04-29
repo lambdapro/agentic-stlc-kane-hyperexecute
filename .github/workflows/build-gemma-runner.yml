@@ -40,7 +40,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=sha,prefix=gemma3-1b-
+            type=sha,prefix=llama3.2-3b-
 
       - name: Build and push
         uses: docker/build-push-action@v6
