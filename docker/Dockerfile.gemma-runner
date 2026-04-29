@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y \
 RUN ollama serve & \
     OLLAMA_PID=$! && \
     sleep 8 && \
-    ollama pull gemma4:e4b && \
-    printf 'FROM gemma4:e4b\nPARAMETER num_ctx 128000\n' > /tmp/Modelfile && \
+    ollama pull gemma3:1b && \
+    printf 'FROM gemma3:1b\nPARAMETER num_ctx 128000\n' > /tmp/Modelfile && \
     ollama create gemma-local -f /tmp/Modelfile && \
     ollama list && \
     kill $OLLAMA_PID 2>/dev/null || true
