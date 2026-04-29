@@ -15,8 +15,23 @@ build/
 hyperexecute
 hyperexecute.exe
 
-# Kane CLI sessions
+# Kane CLI sessions and test artifacts
 .testmuai/
+.testmu/
+screenshots/
+
+# HyperExecute runtime artifacts
+.hyperexecute/
+hyperexecute-cli.log
+
+# Pipeline artifact cache
+.gh-artifacts/
+
+# Ollama Modelfile (generated at runtime)
+Modelfile
+
+# Misc local files
+search.txt
 
 # IDE
 .vscode/
