@@ -16,7 +16,8 @@ An end-to-end **agentic Software Development Lifecycle** where plain-English req
 |---|---|
 | **Kane CLI** (`@testmuai/kane-cli`) | AI browser agent — verifies each acceptance criterion against the live site using natural-language objectives |
 | **Claude CLI** (`@anthropic-ai/claude-code`) | Agentic orchestrator — reads `PIPELINE.md` and autonomously executes each stage: analyzing requirements, managing scenarios, generating Selenium tests, building traceability reports |
-| **Ollama + Gemma** (`gemma4:e4b`) | Local LLM backend for the agentic workflow in CI — Claude CLI routes inference to a locally served Gemma model via `ANTHROPIC_BASE_URL`, so no cloud API key is required |
+| **Ollama + Gemma** (`gemma4:e4b`) | Local LLM backend for the agentic workflow in CI — Claude CLI routes inference to a locally served Gemma model via LiteLLM proxy, so **no cloud API costs** — zero spend on LLM tokens per pipeline run |
+| **LiteLLM** | Proxy layer that translates Claude CLI's Anthropic API format into Ollama's API format — bridges the two without code changes |
 | **HyperExecute CLI** | Cloud parallel test runner — fans out Selenium tests across multiple VMs simultaneously, cutting execution time from hours to minutes |
 | **Selenium + pytest** | Test execution framework — auto-generated test cases run on LambdaTest's cloud grid |
 
