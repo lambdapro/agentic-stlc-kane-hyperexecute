@@ -132,6 +132,85 @@ The checked-in GitHub Actions workflow at [`.github/workflows/agentic-sdlc.yml`]
 
 ## Pipeline architecture
 
+### Agentic mode flow (Claude CLI + Ollama/Gemma + Kane CLI + HyperExecute)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  You edit:  requirements/*.txt  or  PIPELINE.md  →  git push        │
+└─────────────────────────┬───────────────────────────────────────────┘
+                          │ GitHub Actions triggers
+                          ▼
+          ┌───────────────────────────────┐
+          │   CI job starts               │
+          │   • Installs Claude CLI       │
+          │   • Installs Kane CLI         │
+          │   • Installs Ollama           │
+          │   • Pulls gemma4:e4b (128k)   │
+          │   • Starts ollama serve       │
+          └──────────────┬────────────────┘
+                         │
+                         ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │  claude --model gemma-local                              │
+          │    -p "Execute stage: ANALYZE_REQUIREMENTS from          │
+          │         PIPELINE.md"                                     │
+          │                                                          │
+          │  Claude reads PIPELINE.md, then autonomously:           │
+          │    1. Reads requirements/*.txt                           │
+          │    2. Extracts acceptance criteria (AC-001, AC-002 …)   │
+          │    3. Calls kane-cli run "<criterion>" --agent           │  ◄─── Kane CLI
+          │       --headless for each AC against live site          │       browser agent
+          │    4. Parses NDJSON output → status, link, summary      │
+          │    5. Writes analyzed_requirements.json                  │
+          └──────────────┬───────────────────────────────────────────┘
+                         │ artifact passed to next job
+                         ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │  Stage 2: MANAGE_SCENARIOS                               │
+          │  Claude diffs scenarios.json ↔ analyzed requirements    │
+          │  Adds new, updates changed, deprecates removed           │
+          │  Output: scenarios/scenarios.json                        │
+          └──────────────┬───────────────────────────────────────────┘
+                         │
+                         ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │  Stage 3: GENERATE_TESTS                                 │
+          │  Claude writes Selenium Python test cases (one per       │
+          │  new/updated scenario) + kane/objectives.json            │
+          │  Output: tests/selenium/test_products.py                 │
+          └──────────────┬───────────────────────────────────────────┘
+                         │
+                         ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │  Stage 4a: SELECT_TESTS                                  │
+          │  Claude builds execution manifest — full or incremental  │
+          │  Output: reports/pytest_selection.txt                    │
+          └──────────────┬───────────────────────────────────────────┘
+                         │
+                         ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │  Stage 4b: EXECUTE (HyperExecute CLI)                    │  ◄─── HyperExecute
+          │  ./hyperexecute --config hyperexecute.yaml               │       cloud runner
+          │  Fans out to N parallel VMs on LambdaTest grid          │
+          │  Output: reports/junit/*.xml                             │
+          └──────────────┬───────────────────────────────────────────┘
+                         │
+                         ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │  Stage 5: TRACEABILITY_REPORT + RELEASE_RECOMMENDATION   │
+          │  Claude builds requirement → scenario → test → result    │
+          │  matrix and produces GREEN / YELLOW / RED verdict        │
+          │  Output: reports/traceability_matrix.md                  │
+          │          reports/release_recommendation.md               │
+          └──────────────────────────────────────────────────────────┘
+```
+
+**Key principle:** Every stage is driven by `claude -p "Execute stage: X from PIPELINE.md"`. To change what Claude does in any stage, edit `PIPELINE.md` — the CI YAML never needs to change.
+
+---
+
+### Pure CI mode flow (Python scripts, no LLM in CI)
+
 ```
 requirements/search.txt  (plain English user story)
         |
@@ -151,7 +230,7 @@ requirements/search.txt  (plain English user story)
   Output: tests/selenium/test_products.py
         |
         v
-[Stage 4: SELECT + EXECUTE] ci/select_tests.py + HyperExecute
+[Stage 4: SELECT + EXECUTE] ci/select_tests.py + HyperExecute CLI
   Selects tests to run, submits to HyperExecute (4 parallel VMs)
   Output: reports/junit/*.xml  reports/html/*.html
         |
