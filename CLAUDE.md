@@ -51,4 +51,4 @@ Parse results: `tail -1 output.ndjson | jq .`
 
 ## Target Application
 - URL: https://ecommerce-playground.lambdatest.io/
-- Feature under test: Product browsing and search
+- Feature under test: Product browsing, search, and details

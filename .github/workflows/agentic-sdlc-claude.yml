@@ -16,6 +16,9 @@ on:
 env:
   NODE_VERSION: "22"
   PYTHON_VERSION: "3.11"
+  ANTHROPIC_BASE_URL: "http://localhost:11434/v1"
+  ANTHROPIC_API_KEY: "ollama"
+  CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
 
 jobs:
 
@@ -64,14 +67,25 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Execute ANALYZE_REQUIREMENTS via Claude Agent (OAuth)
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull and Configure Gemma Model
+        run: |
+          ollama pull gemma4:e4b
+          echo "FROM gemma4:e4b" > Modelfile
+          echo "PARAMETER num_ctx 128000" >> Modelfile
+          ollama create gemma-local -f Modelfile
+
+      - name: Execute ANALYZE_REQUIREMENTS via Claude Agent (Local Gemma)
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
         run: |
-          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | tr -d '[:space:]')"
-          claude --dangerously-skip-permissions -p \
+          claude --dangerously-skip-permissions --model gemma-local -p \
             "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
@@ -107,12 +121,22 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Execute MANAGE_SCENARIOS via Claude Agent (OAuth)
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - name: Install Ollama
         run: |
-          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | tr -d '[:space:]')"
-          claude --dangerously-skip-permissions -p \
+          curl -fsSL https://ollama.com | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull and Configure Gemma Model
+        run: |
+          ollama pull gemma4:e4b
+          echo "FROM gemma4:e4b" > Modelfile
+          echo "PARAMETER num_ctx 128000" >> Modelfile
+          ollama create gemma-local -f Modelfile
+
+      - name: Execute MANAGE_SCENARIOS via Claude Agent (Local Gemma)
+        run: |
+          claude --dangerously-skip-permissions --model gemma-local -p \
             "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
@@ -147,12 +171,22 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Execute GENERATE_TESTS via Claude Agent (OAuth)
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - name: Install Ollama
         run: |
-          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | tr -d '[:space:]')"
-          claude --dangerously-skip-permissions -p \
+          curl -fsSL https://ollama.com | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull and Configure Gemma Model
+        run: |
+          ollama pull gemma4:e4b
+          echo "FROM gemma4:e4b" > Modelfile
+          echo "PARAMETER num_ctx 128000" >> Modelfile
+          ollama create gemma-local -f Modelfile
+
+      - name: Execute GENERATE_TESTS via Claude Agent (Local Gemma)
+        run: |
+          claude --dangerously-skip-permissions --model gemma-local -p \
             "Execute stage: GENERATE_TESTS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
@@ -190,13 +224,24 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Execute SELECT_TESTS via Claude Agent (OAuth)
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull and Configure Gemma Model
+        run: |
+          ollama pull gemma4:e4b
+          echo "FROM gemma4:e4b" > Modelfile
+          echo "PARAMETER num_ctx 128000" >> Modelfile
+          ollama create gemma-local -f Modelfile
+
+      - name: Execute SELECT_TESTS via Claude Agent (Local Gemma)
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           FULL_RUN: ${{ inputs.full_run || 'true' }}
         run: |
-          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | tr -d '[:space:]')"
-          claude --dangerously-skip-permissions -p \
+          claude --dangerously-skip-permissions --model gemma-local -p \
             "Execute stage: SELECT_TESTS from PIPELINE.md"
 
       - uses: actions/upload-artifact@v4
@@ -358,20 +403,27 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Execute TRACEABILITY_REPORT via Claude Agent (OAuth)
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - name: Install Ollama
         run: |
-          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | tr -d '[:space:]')"
-          claude --dangerously-skip-permissions -p \
+          curl -fsSL https://ollama.com | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull and Configure Gemma Model
+        run: |
+          ollama pull gemma4:e4b
+          echo "FROM gemma4:e4b" > Modelfile
+          echo "PARAMETER num_ctx 128000" >> Modelfile
+          ollama create gemma-local -f Modelfile
+
+      - name: Execute TRACEABILITY_REPORT via Claude Agent (Local Gemma)
+        run: |
+          claude --dangerously-skip-permissions --model gemma-local -p \
             "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
 
-      - name: Execute RELEASE_RECOMMENDATION via Claude Agent (OAuth)
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - name: Execute RELEASE_RECOMMENDATION via Claude Agent (Local Gemma)
         run: |
-          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | tr -d '[:space:]')"
-          claude --dangerously-skip-permissions -p \
+          claude --dangerously-skip-permissions --model gemma-local -p \
             "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
 
       - name: Fetch HyperExecute and Kane AI API details

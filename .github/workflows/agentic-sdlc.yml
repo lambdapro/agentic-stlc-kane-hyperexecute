@@ -68,6 +68,19 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull Gemma Model
+        run: |
+          ollama pull gemma4:e4b
+          echo "FROM gemma4:e4b" > Modelfile
+          echo "PARAMETER num_ctx 128000" >> Modelfile
+          ollama create gemma-local -f Modelfile
+
       - name: Run analyze stage
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
