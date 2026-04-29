@@ -22,7 +22,8 @@ RUN ollama serve & \
     kill $OLLAMA_PID 2>/dev/null || true
 
 # Install LiteLLM proxy
-RUN pip3 install --break-system-packages --no-cache-dir litellm uvicorn fastapi
+RUN pip3 install --break-system-packages --no-cache-dir \
+    --prefer-binary 'litellm[proxy]'
 
 # Write LiteLLM config that routes claude-3-haiku → gemma-local
 RUN mkdir -p /etc/litellm && cat > /etc/litellm/config.yaml << 'EOF'
