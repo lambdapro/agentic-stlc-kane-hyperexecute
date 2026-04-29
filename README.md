@@ -1,36 +1,36 @@
-# Agentic SDLC — Kane AI + HyperExecute
+# Agentic STLC — Kane AI + HyperExecute
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[!Agentic Pipeline](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc.yml)
+[!Pipeline Status](https://github.com/lambdapro/agentic-stlc/actions/workflows/agentic-stlc.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc/actions/workflows/agentic-stlc.yml)
 
 > **Open source under the MIT License.** Fork it, adapt it, ship it.
 
-An end-to-end **agentic Software Development Lifecycle** where plain-English requirements drive every stage of QA — from requirement analysis, through scenario management and test generation, to parallel cloud execution and a final release verdict.
+An end-to-end **Agentic Software Development Lifecycle (STLC)** where plain-English requirements drive every stage of QA — from requirement analysis to parallel cloud execution and a final release verdict.
 
 ---
 
-## Tools at a glance
+## 🚀 Core Architecture
 
 | Tool | Role in the pipeline |
 |---|---|
 | **Kane CLI** (`@testmuai/kane-cli`) | AI browser agent — verifies each acceptance criterion against the live site using natural-language objectives |
 | **HyperExecute CLI** | Cloud parallel test runner — fans out Selenium tests across multiple VMs simultaneously, cutting execution time from hours to minutes |
 | **Selenium + pytest** | Test execution framework — auto-generated test cases run on LambdaTest's cloud grid |
-| **Python CI Scripts** | Deterministic orchestrators — synchronizes requirements, scenarios, and test code |
+| **Python CI Scripts** | Orchestrators — synchronizes requirements, scenarios, and test code logic |
 
 ---
 
-## The one step that triggers everything
+## 🛠️ How It Works
 
 **Edit your requirements, commit, push.** That's it.
 
 ```bash
-# 1. Describe new requirements in plain English
+# 1. Add/Edit requirements in plain English
 vim requirements/search.txt
 
-# 2. Commit and push — GitHub Actions runs all stages automatically
+# 2. Commit and push
 git add requirements/
-git commit -m "feat: add requirement for product detail navigation"
+git commit -m "feat: add new product search requirement"
 git push
 ```
 
@@ -138,8 +138,8 @@ The `.github/workflows/agentic-stlc.yml` workflow executes the following Python-
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute.git
-cd agentic-stlc-kane-claude-hyperexecute
+git clone https://github.com/lambdapro/agentic-stlc.git
+cd agentic-stlc
 
 # Install Kane CLI (required for all modes)
 npm install -g @testmuai/kane-cli
@@ -192,12 +192,11 @@ git commit -m "feat: add new acceptance criterion"
 git push
 ```
 
-Two pipelines are available:
+The pipeline is available here:
 
-| Workflow | Trigger | What runs |
+| Workflow | Trigger | Description |
 |---|---|---|
-| **Pure CI Pipeline** | Push to `requirements/**` or `scenarios/**` | Python scripts — fast, deterministic, no LLM in CI |
-| **Agentic STLC** | Push to `requirements/**` or `PIPELINE.md` | Claude CLI + Ollama/Gemma — fully agentic, update `PIPELINE.md` to change behavior |
+| **Agentic STLC Pipeline** | Push to `requirements/**` or `scenarios/**` | Automated STLC orchestration using Kane AI |
 
 Watch it run: **GitHub > Actions**
 

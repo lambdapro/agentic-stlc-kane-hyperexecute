@@ -222,8 +222,17 @@ def main():
     emit("")
 
     he_total = he_api.get("total_tasks") or len(selected)
-    he_failed_api = he_api.get("failed_tasks", failed_count)
-    he_passed_api = (he_total - he_failed_api) if isinstance(he_total, int) else passed
+    he_failed_api = he_api.get("failed_tasks")
+    # Ensure summary metrics are consistent with actual execution data
+    if he_failed_api is None:
+        if executed > 0:
+            he_failed_api = failed_count
+        else:
+            he_failed_api = he_total if he_total > 0 else 0
+            
+    if he_passed_api is None:
+        he_passed_api = passed if executed > 0 else 0
+
     he_status = he_api.get("status", "unknown")
 
     emit("| Metric | Value |")
@@ -263,16 +272,24 @@ def main():
     emit("")
 
     if trace_rows:
-        emit("| Requirement | Acceptance Criterion | Scenario | Test Case | Kane AI | Selenium | Result |")
-        emit("|---|---|---|---|---|---|---|")
+        emit("| Requirement | Acceptance Criterion | Scenario | Test Case | Kane AI | Kane Link | Selenium | Result |")
+        emit("|---|---|---|---|---|---|---|---|")
         for row in trace_rows:
             se = row.get("selenium_result", "not_run")
             kane = row.get("kane_ai_result", "unknown")
+            req_id = row.get("requirement_id", "")
+
+            # Lookup Kane session link from API metadata or analyzed requirements
+            session = kane_sessions_api.get(req_id, {})
+            req_item = next((r for r in requirements if r["id"] == req_id), {})
+            kane_link = session.get("link") or (req_item.get("kane_links", [""])[0] if req_item.get("kane_links") else "")
+            kane_link_md = f"[View session]({kane_link})" if kane_link else "—"
+
             overall = row.get("overall", "unknown")
             icon = "✅" if overall == "passed" else "❌"
             emit(
-                f"| `{row['requirement_id']}` | {row['acceptance_criterion'][:60]}… | "
-                f"`{row['scenario_id']}` | `{row['test_case_id']}` | {kane} | {se} | {icon} {overall} |"
+                f"| `{req_id}` | {row['acceptance_criterion'][:60]}… | "
+                f"`{row['scenario_id']}` | `{row['test_case_id']}` | {kane} | {kane_link_md} | {se} | {icon} {overall} |"
             )
         emit("")
 

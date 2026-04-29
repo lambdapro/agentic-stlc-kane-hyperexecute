@@ -1,4 +1,4 @@
-name: Agentic SDLC Pipeline (Kane AI)
+name: Agentic STLC Pipeline
 
 on:
   push:
@@ -48,14 +48,8 @@ jobs:
         run: npm install -g @testmuai/kane-cli
 
       - name: Authenticate Kane CLI
-        env:
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
         run: |
-          kane-cli login \
-            --username "$LT_USERNAME" \
-            --access-key "$LT_ACCESS_KEY"
-          kane-cli whoami
+          kane-cli login --username "${{ secrets.LT_USERNAME }}" --access-key "${{ secrets.LT_ACCESS_KEY }}"
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt

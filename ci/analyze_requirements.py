@@ -21,12 +21,22 @@ def parse_args():
 
 def extract_acceptance_criteria(text):
     """Extracts acceptance criteria using deterministic line parsing."""
+    criteria = []
     lines = [line.strip() for line in text.splitlines()]
-    try:
-        start = lines.index("Acceptance Criteria:") + 1
-    except ValueError:
-        start = len(lines)
-    return [line for line in lines[start:] if line and line.strip()]
+    capture = False
+    for line in lines:
+        # Match "Acceptance Criteria" with or without trailing colon
+        if line.lower().strip().rstrip(":").startswith("acceptance criteria"):
+            capture = True
+            continue
+        if capture:
+            # Stop capturing if we hit a separator, a new story, or user story narrative
+            if not line or line.startswith("---") or line.lower().startswith("title") or \
+               any(line.lower().startswith(p) for p in ["as a ", "i want to ", "so that ", "acceptance criteria"]):
+                capture = False
+                continue
+            criteria.append(line)
+    return [c for c in criteria if c.strip()]
 
 
 def make_title(description):
@@ -163,9 +173,10 @@ def main():
     kane_path.parent.mkdir(parents=True, exist_ok=True)
     kane_path.write_text(json.dumps(kane_results, indent=2) + "\n", encoding="utf-8")
 
-    print("ID       Kane      Title")
+    print(f"{'ID':8} {'Kane':<9} {'Title':<40} {'Link'}")
     for item in analyzed:
-        print(f"{item['id']:8} {item['kane_status']:<9} {item['title']}")
+        link = item.get("kane_links", [""])[0] if item.get("kane_links") else ""
+        print(f"{item['id']:8} {item['kane_status']:<9} {item['title']:40.40} {link}")
 
 
 if __name__ == "__main__":
