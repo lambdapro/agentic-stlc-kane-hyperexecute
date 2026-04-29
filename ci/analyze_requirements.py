@@ -20,31 +20,13 @@ def parse_args():
 
 
 def extract_acceptance_criteria(text):
+    """Extracts acceptance criteria using deterministic line parsing."""
     lines = [line.strip() for line in text.splitlines()]
     try:
         start = lines.index("Acceptance Criteria:") + 1
     except ValueError:
         start = len(lines)
-
-    criteria = [line for line in lines[start:] if line]
-    combined = []
-    i = 0
-    while i < len(criteria):
-        current = criteria[i]
-        next_line = criteria[i + 1] if i + 1 < len(criteria) else None
-        if (
-            next_line
-            and "navigate to the products section" in current.lower()
-            and "view a list of available products" in next_line.lower()
-        ):
-            combined.append(
-                "User can navigate to the products section of the site and view a list of available products"
-            )
-            i += 2
-            continue
-        combined.append(current)
-        i += 1
-    return combined
+    return [line for line in lines[start:] if line and line.strip()]
 
 
 def make_title(description):
@@ -59,7 +41,7 @@ def make_title(description):
         return "View product highlights without logging in"
     if "selected filters or search criteria" in lowered:
         return "Relevant results based on selected filters"
-    words = description.replace(".", "").split()
+    words = description.replace(".", "").replace(":", "").split()
     return " ".join(words[:10]).strip().capitalize()
 
 

@@ -6,7 +6,7 @@ concurrency: 4
 env:
   LT_USERNAME: ${LT_USERNAME}
   LT_ACCESS_KEY: ${LT_ACCESS_KEY}
-  TARGET_URL: https://www.americanexpress.com/
+  TARGET_URL: https://ecommerce-playground.lambdatest.io/
 
 runtime:
   language: python
@@ -21,10 +21,10 @@ pre:
 
 testDiscovery:
   type: raw
-  mode: static
-  command: python3 -c "tests=['test_sc_001_navigate_to_credit_cards_and_view_list','test_sc_002_filter_cards_by_category','test_sc_003_click_card_view_details','test_sc_004_card_highlights_visible_without_login','test_sc_005_relevant_results_for_selected_filter'];[print(t) for t in tests]"
+  mode: dynamic
+  command: cat reports/pytest_selection.txt
 
-testRunnerCommand: pytest tests/selenium/test_credit_cards.py::$test -v --tb=short --html=reports/$test.html --self-contained-html
+testRunnerCommand: pytest tests/selenium/test_products.py::$test -v --tb=short --html=reports/$test.html --self-contained-html
 
 mergeArtifacts: true
 uploadArtefacts:
@@ -44,8 +44,8 @@ globalTimeout: 60
 testSuiteTimeout: 45
 
 jobLabel:
-  - amex-credit-cards
-  - agentic-stlc
+  - ecommerce-products
+  - agentic-sdlc
   - selenium-python
 
 captureScreenRecordingForScenarios: true

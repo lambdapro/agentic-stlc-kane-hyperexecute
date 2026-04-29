@@ -1,8 +1,7 @@
-# Agentic STLC — Kane AI + Claude + Ollama + HyperExecute
+# Agentic SDLC — Kane AI + HyperExecute
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Pure CI Pipeline](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc.yml)
-[![Agentic Pipeline](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc-claude.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc-claude.yml)
+[!Agentic Pipeline](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc-kane-claude-hyperexecute/actions/workflows/agentic-stlc.yml)
 
 > **Open source under the MIT License.** Fork it, adapt it, ship it.
 
@@ -15,35 +14,22 @@ An end-to-end **agentic Software Development Lifecycle** where plain-English req
 | Tool | Role in the pipeline |
 |---|---|
 | **Kane CLI** (`@testmuai/kane-cli`) | AI browser agent — verifies each acceptance criterion against the live site using natural-language objectives |
-| **Claude CLI** (`@anthropic-ai/claude-code`) | Agentic orchestrator — reads `PIPELINE.md` and autonomously executes each stage: analyzing requirements, managing scenarios, generating Selenium tests, building traceability reports |
-| **Ollama + Gemma** (`gemma4:e4b`) | Local LLM backend for the agentic workflow in CI — Claude CLI routes inference to a locally served Gemma model via LiteLLM proxy, so **no cloud API costs** — zero spend on LLM tokens per pipeline run |
-| **LiteLLM** | Proxy layer that translates Claude CLI's Anthropic API format into Ollama's API format — bridges the two without code changes |
 | **HyperExecute CLI** | Cloud parallel test runner — fans out Selenium tests across multiple VMs simultaneously, cutting execution time from hours to minutes |
 | **Selenium + pytest** | Test execution framework — auto-generated test cases run on LambdaTest's cloud grid |
+| **Python CI Scripts** | Deterministic orchestrators — synchronizes requirements, scenarios, and test code |
 
 ---
 
 ## The one step that triggers everything
 
-**Edit `PIPELINE.md` or your requirements, commit, push.** That's it.
-
-The agentic pipeline starts from `PIPELINE.md` — a natural-language instruction file that tells Claude exactly what to do in each stage. Every CI stage calls:
-
-```bash
-claude --model gemma-local -p "Execute stage: <STAGE_NAME> from PIPELINE.md"
-```
-
-Claude reads `PIPELINE.md`, finds the matching stage, and executes it autonomously — reading files, running `kane-cli`, writing test code, building reports. To change how any stage behaves, **edit `PIPELINE.md`**, not the CI YAML.
+**Edit your requirements, commit, push.** That's it.
 
 ```bash
 # 1. Describe new requirements in plain English
 vim requirements/search.txt
 
-# 2. Or update stage instructions to change pipeline behavior
-vim PIPELINE.md
-
-# 3. Commit and push — GitHub Actions runs all stages automatically
-git add requirements/ PIPELINE.md
+# 2. Commit and push — GitHub Actions runs all stages automatically
+git add requirements/
 git commit -m "feat: add requirement for product detail navigation"
 git push
 ```
@@ -73,174 +59,15 @@ No human writes a single test. No one maps a requirement to code. The pipeline d
 
 ---
 
-## Two execution modes
+## Pipeline Automation
 
-This repo supports both approaches. Choose based on your team's tooling:
+The `.github/workflows/agentic-stlc.yml` workflow executes the following Python-driven stages:
 
-### Mode A — Agentic (Claude + Ollama/Gemma orchestrates everything)
-
-Claude CLI reads `PIPELINE.md` and executes each stage autonomously. In CI, inference is served locally by **Ollama running `gemma4:e4b`** — no cloud API key required. Claude routes to it via `ANTHROPIC_BASE_URL=http://localhost:11434/v1`.
-
-**How it works in CI:**
-
-```yaml
-# Each job installs Ollama, pulls the model, then runs Claude against it
-- name: Install Ollama
-  run: curl -fsSL https://ollama.com/install.sh | sh && ollama serve &
-
-- name: Pull and Configure Gemma Model
-  run: |
-    ollama pull gemma4:e4b
-    echo "FROM gemma4:e4b\nPARAMETER num_ctx 128000" | ollama create gemma-local -f -
-
-- name: Execute stage via Claude Agent
-  env:
-    ANTHROPIC_BASE_URL: http://localhost:11434/v1
-    ANTHROPIC_API_KEY: ollama
-  run: claude --dangerously-skip-permissions --model gemma-local -p \
-         "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
-```
-
-**Locally (with Anthropic API key):**
-
-```bash
-claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
-claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
-claude -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
-claude -p "Execute stage: SELECT_TESTS from PIPELINE.md"
-claude -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
-claude -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
-```
-
-The same `claude -p "Execute stage: X from PIPELINE.md"` command works identically in any CI tool — GitHub Actions, GitLab CI, Jenkins, Bitbucket. Only the secret injection and artifact syntax differ.
-
-### Mode B — Pure CI (Python scripts, no Claude needed)
-
-The `ci/` directory contains deterministic Python scripts that run the same stages without any LLM. Requires only `LT_USERNAME` and `LT_ACCESS_KEY`.
-
-```bash
-python ci/analyze_requirements.py       # Stage 1: runs Kane CLI against requirements/search.txt
-python ci/manage_scenarios.py           # Stage 2: diffs and updates scenarios/scenarios.json
-python ci/generate_tests_from_scenarios.py  # Stage 3: writes tests/selenium/test_products.py
-python ci/select_tests.py               # Stage 4: writes reports/pytest_selection.txt
-python ci/build_traceability.py         # Stage 5a: generates reports/traceability_matrix.md
-python ci/release_recommendation.py    # Stage 5b: generates reports/release_recommendation.md
-```
-
-The checked-in GitHub Actions workflow at [`.github/workflows/agentic-stlc.yml`](.github/workflows/agentic-stlc.yml) uses **Mode B** — no `ANTHROPIC_API_KEY` required.
-
----
-
-## Pipeline architecture
-
-### Agentic mode flow (Claude CLI + Ollama/Gemma + Kane CLI + HyperExecute)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  You edit:  requirements/*.txt  or  PIPELINE.md  →  git push        │
-└─────────────────────────┬───────────────────────────────────────────┘
-                          │ GitHub Actions triggers
-                          ▼
-          ┌───────────────────────────────┐
-          │   CI job starts               │
-          │   • Installs Claude CLI       │
-          │   • Installs Kane CLI         │
-          │   • Installs Ollama           │
-          │   • Pulls gemma4:e4b (128k)   │
-          │   • Starts ollama serve       │
-          └──────────────┬────────────────┘
-                         │
-                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │  claude --model gemma-local                              │
-          │    -p "Execute stage: ANALYZE_REQUIREMENTS from          │
-          │         PIPELINE.md"                                     │
-          │                                                          │
-          │  Claude reads PIPELINE.md, then autonomously:           │
-          │    1. Reads requirements/*.txt                           │
-          │    2. Extracts acceptance criteria (AC-001, AC-002 …)   │
-          │    3. Calls kane-cli run "<criterion>" --agent           │  ◄─── Kane CLI
-          │       --headless for each AC against live site          │       browser agent
-          │    4. Parses NDJSON output → status, link, summary      │
-          │    5. Writes analyzed_requirements.json                  │
-          └──────────────┬───────────────────────────────────────────┘
-                         │ artifact passed to next job
-                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │  Stage 2: MANAGE_SCENARIOS                               │
-          │  Claude diffs scenarios.json ↔ analyzed requirements    │
-          │  Adds new, updates changed, deprecates removed           │
-          │  Output: scenarios/scenarios.json                        │
-          └──────────────┬───────────────────────────────────────────┘
-                         │
-                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │  Stage 3: GENERATE_TESTS                                 │
-          │  Claude writes Selenium Python test cases (one per       │
-          │  new/updated scenario) + kane/objectives.json            │
-          │  Output: tests/selenium/test_products.py                 │
-          └──────────────┬───────────────────────────────────────────┘
-                         │
-                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │  Stage 4a: SELECT_TESTS                                  │
-          │  Claude builds execution manifest — full or incremental  │
-          │  Output: reports/pytest_selection.txt                    │
-          └──────────────┬───────────────────────────────────────────┘
-                         │
-                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │  Stage 4b: EXECUTE (HyperExecute CLI)                    │  ◄─── HyperExecute
-          │  ./hyperexecute --config hyperexecute.yaml               │       cloud runner
-          │  Fans out to N parallel VMs on LambdaTest grid          │
-          │  Output: reports/junit/*.xml                             │
-          └──────────────┬───────────────────────────────────────────┘
-                         │
-                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │  Stage 5: TRACEABILITY_REPORT + RELEASE_RECOMMENDATION   │
-          │  Claude builds requirement → scenario → test → result    │
-          │  matrix and produces GREEN / YELLOW / RED verdict        │
-          │  Output: reports/traceability_matrix.md                  │
-          │          reports/release_recommendation.md               │
-          └──────────────────────────────────────────────────────────┘
-```
-
-**Key principle:** Every stage is driven by `claude -p "Execute stage: X from PIPELINE.md"`. To change what Claude does in any stage, edit `PIPELINE.md` — the CI YAML never needs to change.
-
----
-
-### Pure CI mode flow (Python scripts, no LLM in CI)
-
-```
-requirements/search.txt  (plain English user story)
-        |
-        v
-[Stage 1: ANALYZE] ci/analyze_requirements.py
-  Kane AI browses live site, confirms each AC is observable
-  Output: requirements/analyzed_requirements.json
-        |
-        v
-[Stage 2: MANAGE] ci/manage_scenarios.py
-  Diffs scenarios.json — updates changed, adds new, deprecates removed
-  Output: scenarios/scenarios.json
-        |
-        v
-[Stage 3: GENERATE] ci/generate_tests_from_scenarios.py
-  Writes Selenium Python tests for every new or changed scenario
-  Output: tests/selenium/test_products.py
-        |
-        v
-[Stage 4: SELECT + EXECUTE] ci/select_tests.py + HyperExecute CLI
-  Selects tests to run, submits to HyperExecute (4 parallel VMs)
-  Output: reports/junit/*.xml  reports/html/*.html
-        |
-        v
-[Stage 5: REPORT] ci/build_traceability.py + ci/release_recommendation.py
-  Requirement -> Scenario -> Test -> Result matrix
-  GREEN / YELLOW / RED release verdict
-  Output: reports/traceability_matrix.md  reports/release_recommendation.md
-```
+1.  **Stage 1 - Analyze Requirements**: `ci/analyze_requirements.py` runs Kane AI against the live site to verify acceptance criteria.
+2.  **Stage 2 - Manage Scenarios**: `ci/manage_scenarios.py` synchronizes the scenario catalog.
+3.  **Stage 3 - Generate Tests**: `ci/generate_tests_from_scenarios.py` writes/updates Selenium Python tests.
+4.  **Stage 4 - Execution**: Selected tests are submitted to **HyperExecute** for parallel cloud execution.
+5.  **Stage 5 - Reporting**: Requirement traceability matrix and release verdict are produced.
 
 ---
 
@@ -319,15 +146,6 @@ npm install -g @testmuai/kane-cli
 
 # Install Python dependencies
 pip install -r requirements.txt
-
-# For agentic mode: install Claude CLI
-npm install -g @anthropic-ai/claude-code
-
-# For agentic mode in CI: install Ollama + pull Gemma model
-curl -fsSL https://ollama.com/install.sh | sh
-ollama serve &
-ollama pull gemma4:e4b
-printf 'FROM gemma4:e4b\nPARAMETER num_ctx 128000\n' | ollama create gemma-local -f -
 ```
 
 ### 2. Set credentials
@@ -420,35 +238,6 @@ python ci/build_traceability.py
 python ci/release_recommendation.py
 cat reports/release_recommendation.md
 ```
-
-### Full pipeline — Agentic mode (Claude + Ollama/Gemma)
-
-Start Ollama locally first, then run Claude against it:
-
-```bash
-# Start local LLM server
-ollama serve &
-export ANTHROPIC_BASE_URL=http://localhost:11434/v1
-export ANTHROPIC_API_KEY=ollama
-
-# Run each stage — Claude reads PIPELINE.md and executes autonomously
-claude --model gemma-local -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
-claude --model gemma-local -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
-claude --model gemma-local -p "Execute stage: GENERATE_TESTS from PIPELINE.md"
-claude --model gemma-local -p "Execute stage: SELECT_TESTS from PIPELINE.md"
-claude --model gemma-local -p "Execute stage: TRACEABILITY_REPORT from PIPELINE.md"
-claude --model gemma-local -p "Execute stage: RELEASE_RECOMMENDATION from PIPELINE.md"
-```
-
-Or with Anthropic API directly (no Ollama needed):
-
-```bash
-export ANTHROPIC_API_KEY=your_anthropic_api_key
-claude -p "Execute stage: ANALYZE_REQUIREMENTS from PIPELINE.md"
-# ... same pattern for each stage
-```
-
-**To change how a stage behaves, edit `PIPELINE.md`** — not the CI YAML. The YAML just calls `claude -p "Execute stage: X from PIPELINE.md"`; all the intelligence lives in `PIPELINE.md`.
 
 ### Selenium only — run tests directly
 
@@ -559,9 +348,6 @@ manage-scenarios:
     - python ci/manage_scenarios.py
   artifacts:
     paths: [scenarios/scenarios.json]
-
-# Agentic variant — add ANTHROPIC_API_KEY and swap script line:
-# script: claude -p "Execute stage: MANAGE_SCENARIOS from PIPELINE.md"
 ```
 
 ### Jenkins (Declarative Pipeline)

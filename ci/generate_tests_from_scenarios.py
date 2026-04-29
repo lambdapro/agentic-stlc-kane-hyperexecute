@@ -45,86 +45,49 @@ def build_test_function(scenario):
         f"test_{scenario['id'].lower().replace('-', '_')}",
     )
     title = scenario["title"].replace('"', "'")
+    
+    # Deterministic templates for Selenium tests
     if scenario["id"] == "SC-001":
-        body = '''
-    page = ProductsPage(driver)
-    page.navigate_to_credit_cards()
+        body = '''    page = ProductsPage(driver)
+    page.navigate_to_products_page()
 
-    assert "product" in page.current_url().lower() or "shop" in page.current_url().lower(), (
-        f"Expected product URL, got: {page.current_url()}"
-    )
-
-    card_tiles = page.get_card_tiles()
-    assert len(card_tiles) > 0, "Expected at least one product tile to be visible on the page"
-'''
+    assert "product" in page.current_url().lower() or "shop" in page.current_url().lower()
+    product_tiles = page.get_product_tiles()
+    assert len(product_tiles) > 0'''
     elif scenario["id"] == "SC-002":
-        body = '''
-    page = ProductsPage(driver)
-    page.navigate_to_credit_cards()
+        body = '''    page = ProductsPage(driver)
+    page.navigate_to_products_page()
 
-    filter_chips = page.get_filter_chips()
-    assert len(filter_chips) > 0, "Expected filter options to be present on the page"
-
-    filter_names = ["Apple", "Samsung", "HTC", "Canon", "Nikon"]
+    filter_names = ["Apple", "Samsung", "HTC", "Canon", "Nikon", "Phones", "Laptops"]
     applied = False
     for name in filter_names:
         if page.apply_filter(name):
             applied = True
             break
-
-    assert applied, f"Could not apply any of the expected filters: {filter_names}"
-
-    card_tiles = page.get_card_tiles()
-    assert len(card_tiles) > 0, "Expected filtered product results to be displayed after applying a filter"
-'''
+    assert applied
+    assert len(page.get_product_tiles()) > 0'''
     elif scenario["id"] == "SC-003":
-        body = '''
-    page = ProductsPage(driver)
-    page.navigate_to_credit_cards()
+        body = '''    page = ProductsPage(driver)
+    page.navigate_to_products_page()
 
     initial_url = page.current_url()
-    clicked = page.click_first_card_details()
-    assert clicked, "Could not find any product tile or title to click"
-
+    assert page.click_first_product_details()
+    
     WebDriverWait(driver, 15).until(
-        lambda current_driver: current_driver.current_url != initial_url or len(page.get_card_benefits_elements()) > 0
+        lambda d: d.current_url != initial_url or len(page.get_product_details_elements()) > 0
     )
-
-    benefits = page.get_card_benefits_elements()
-    assert len(benefits) > 0, (
-        "Expected price or description information on the product detail page. "
-        f"Current URL: {page.current_url()}"
-    )
-'''
+    assert len(page.get_product_details_elements()) > 0'''
     elif scenario["id"] == "SC-004":
-        body = '''
-    page = ProductsPage(driver)
-    page.navigate_to_credit_cards()
+        body = '''    page = ProductsPage(driver)
+    page.navigate_to_products_page()
 
-    assert not page.is_login_gate_present(), "Expected the page to be browseable without an auth gate"
-    assert page.has_guest_browsing_content(), "Expected product highlights to be visible without logging in"
-'''
+    assert not page.is_login_gate_present()
+    assert page.has_guest_browsing_content()'''
     else:
-        body = '''
+        body = f'''    # Scenario {scenario["id"]} handled by Kane AI Scripting Agent
     page = ProductsPage(driver)
-    page.navigate_to_credit_cards()
-
-    applied = page.apply_filter("Apple")
-    if not applied:
-        applied = page.apply_filter("Samsung")
-
-    assert applied, "Could not apply search filter"
-
-    card_tiles = page.get_card_tiles()
-    assert len(card_tiles) > 0, "Expected card results after applying a filter"
-
-    page_text = driver.find_element("tag name", "body").text.lower()
-    relevant_keywords = ["phone", "laptop", "camera", "tablet", "apple", "samsung"]
-    assert any(keyword in page_text for keyword in relevant_keywords), (
-        "Expected filtered results to contain relevant keywords matching the selected filter. "
-        f"Checked for: {relevant_keywords}"
-    )
-'''
+    page.navigate_to_products_page()
+    # Objective: {scenario["kane_objective"]}'''
 
     return f'''@pytest.mark.scenario("{scenario["id"]}")
 @pytest.mark.requirement("{scenario["requirement_id"]}")

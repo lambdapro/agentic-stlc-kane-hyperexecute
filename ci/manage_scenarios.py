@@ -24,7 +24,7 @@ def load_json(path, default):
 def title_and_steps(requirement):
     requirement_id = requirement["id"]
     description = requirement["description"].lower()
-    if requirement_id == "AC-001" or "available products" in description:
+    if "view a list of available products" in description or "product section" in description:
         return (
             "Navigate to product section and view available products",
             [
@@ -35,7 +35,7 @@ def title_and_steps(requirement):
             ],
             "A list of available products is displayed with product tiles and filter options visible",
         )
-    if "use filters" in description:
+    if "use filters" in description or "refine results" in description:
         return (
             "Filter products by category",
             [
@@ -47,7 +47,7 @@ def title_and_steps(requirement):
             ],
             "Filtered results are displayed after applying a filter",
         )
-    if "click on a product" in description:
+    if "click on a product" in description or "view details" in description:
         return (
             "Click a product to view details",
             [
@@ -59,7 +59,7 @@ def title_and_steps(requirement):
             ],
             "Product detail page is displayed showing specific item information",
         )
-    if "without logging in" in description:
+    if "without logging in" in description or "highlights" in description:
         return (
             "View product highlights without logging in",
             [
@@ -69,6 +69,30 @@ def title_and_steps(requirement):
                 "Verify no login prompt blocks the content",
             ],
             "Product highlights are visible on the page without requiring login",
+        )
+    if "search for \"iphone\"" in description:
+        return (
+            "Search for iPhone products and view results",
+            [
+                "Navigate to https://ecommerce-playground.lambdatest.io/",
+                "Use the search bar to search for 'iphone'",
+                "Verify the search results page loads",
+                "Verify products containing 'iphone' are displayed"
+            ],
+            "A list of iPhone products is displayed in the search results"
+        )
+    if "add a product to the cart" in description:
+        return (
+            "Add product to cart and verify in cart",
+            [
+                "Navigate to https://ecommerce-playground.lambdatest.io/",
+                "Click on a product to view its details",
+                "Click the 'Add to Cart' button",
+                "Verify a success message is displayed or the cart icon updates",
+                "Navigate to the cart page",
+                "Verify the added product is present in the cart with correct details"
+            ],
+            "Product is successfully added to the cart and visible on the cart page"
         )
     return (
         "Search results are relevant to selected filters or criteria",

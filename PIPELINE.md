@@ -1,82 +1,22 @@
-# Agentic STLC Pipeline
+# Agentic SDLC Pipeline (Kane AI)
 
-This file is the natural language instruction file for the agentic CI/CD pipeline.
-Any CI tool invokes a stage by running:
-  claude -p "Execute stage: <STAGE_NAME> from PIPELINE.md"
-
-Claude Code reads this file, finds the matching stage, and executes it autonomously
-using the tools available (file read/write, kane-cli, bash commands).
+This file defines the stages of the agentic SDLC pipeline. The pipeline uses **Kane AI CLI** to verify requirements and discover site structure, while deterministic Python scripts orchestrate the synchronization between requirements, scenarios, and test code.
 
 ---
 
 ## Stage: ANALYZE_REQUIREMENTS
 
-**Goal:** Parse requirements and confirm each acceptance criterion is observable on the live site using the Kane CLI skill for AI agents.
+**Goal:** Parse requirements and confirm each acceptance criterion is observable on the live site using Kane AI.
 
-### Kane CLI Skill Setup (run once per CI job)
-
-The Kane CLI skill teaches this agent how to invoke kane-cli, parse NDJSON output, and present structured results. Install it before running any verification:
-
-```bash
-# Install the Kane CLI skill for Claude Code (AI agent mode)
-mkdir -p ~/.claude/skills/kane-cli
-curl -fsSL -o ~/.claude/skills/kane-cli/SKILL.md \
-  https://raw.githubusercontent.com/LambdaTest/kane-cli/main/skills/claude/SKILL.md
-
-# Authenticate with Basic Auth (OAuth requires a browser — incompatible with CI)
-kane-cli login \
-  --username "$LT_USERNAME" \
-  --access-key "$LT_ACCESS_KEY"
-
-# Verify authentication
-kane-cli whoami
-```
-
-The skill file is a plain markdown file. Review it at `~/.claude/skills/kane-cli/SKILL.md`.
-Skills work on top of Agent Mode (`--agent` flag) — the skill tells this agent to always use
-`--agent`, parse the NDJSON stream, and extract structured results from the `run_end` event.
-
-### Instructions
-
-1. Read all files inside `requirements/` directory
-2. Extract every acceptance criterion as a structured item with fields:
-   - id: sequential (AC-001, AC-002, ...)
-   - title: short label
-   - description: full acceptance criterion text
-   - url: https://ecommerce-playground.lambdatest.io/
-3. For each acceptance criterion, run a Kane CLI verification using the installed skill.
-   The skill handles command construction, NDJSON parsing, and failure diagnosis automatically:
-   ```bash
-   kane-cli run "<criterion as plain-English objective>" \
-     --url https://ecommerce-playground.lambdatest.io/ \
-     --agent --headless --timeout 120
-   ```
-   - Credentials come from the pre-authenticated session (`kane-cli login` above)
-   - Parse only the last line of stdout (the `run_end` event)
-   - The skill extracts: status, one_liner, final_state, duration, link (Kane AI session URL)
-4. Write output to `requirements/analyzed_requirements.json`:
-   ```json
-   [
-     {
-       "id": "AC-001",
-       "title": "...",
-       "description": "...",
-       "url": "https://ecommerce-playground.lambdatest.io/",
-       "kane_status": "passed|failed",
-       "kane_summary": "...",
-       "kane_final_state": {},
-       "kane_links": ["https://kaneai.lambdatest.com/..."],
-       "last_analyzed": "<ISO date>"
-     }
-   ]
-   ```
-5. Print a summary table: requirement ID, Kane status, Kane session link
+Executed by: `python ci/analyze_requirements.py`
 
 ---
 
 ## Stage: MANAGE_SCENARIOS
 
 **Goal:** Synchronise scenarios.json with the analyzed requirements — update changed, add new, deprecate removed.
+
+Executed by: `python ci/manage_scenarios.py`
 
 Instructions:
 1. Load `requirements/analyzed_requirements.json`
@@ -114,12 +54,16 @@ Instructions:
 
 ## Stage: GENERATE_TESTS
 
-**Goal:** Generate or update Selenium Python test cases for all new/updated scenarios.
+**Goal:** Generate or update Selenium Python test cases for all new/updated scenarios, using Kane AI as the scripting agent for discovery.
+
+Executed by: `python ci/generate_tests_from_scenarios.py`
 
 Instructions:
 1. Load `scenarios/scenarios.json`
 2. Filter scenarios where `status` is "new" or "updated"
 3. Load existing `tests/selenium/test_products.py` if it exists
+4. **Kane AI Scripting Discovery:** For any new scenario, run `kane-cli run "<kane_objective>"` in `--agent` mode. 
+   - Observe the `final_state` and steps taken by Kane to identify the correct selectors and page interactions.
 4. For each new/updated scenario:
    a. Check if a test function named `test_<scenario_id_lowercase>` already exists in the file
    b. If exists: update the test body to match the new scenario steps and expected_result
@@ -130,6 +74,7 @@ Instructions:
    - Use the `ProductsPage` page object from `tests/selenium/pages/products_page.py`
    - Assert the expected_result condition
    - Have a docstring matching the scenario title
+   - **Agent Note:** If selectors were discovered via Kane CLI in step 4, prioritize those over generic templates.
 6. Also update `kane/objectives.json` — add/update entries for new/updated scenarios
 7. Write the updated test file and objectives file
 8. Print: N tests added, N tests updated
@@ -139,6 +84,8 @@ Instructions:
 ## Stage: SELECT_TESTS
 
 **Goal:** Decide which tests to run based on what changed, and write an execution manifest.
+
+Executed by: `python ci/select_tests.py`
 
 Instructions:
 1. Load `scenarios/scenarios.json`
@@ -167,6 +114,8 @@ Instructions:
 
 **Goal:** Generate a full traceability matrix linking requirements → scenarios → test cases → results.
 
+Executed by: `python ci/build_traceability.py`
+
 Instructions:
 1. Load `requirements/analyzed_requirements.json`
 2. Load `scenarios/scenarios.json`
@@ -187,6 +136,8 @@ Instructions:
 ## Stage: RELEASE_RECOMMENDATION
 
 **Goal:** Analyse the traceability matrix and produce a QA release recommendation.
+
+Executed by: `python ci/release_recommendation.py`
 
 Instructions:
 1. Load `reports/traceability_matrix.md`
@@ -217,136 +168,3 @@ Instructions:
    <Plain English paragraph: should QA sign off or not, and why>
    ```
 5. Print the verdict and one-line reason to stdout
-
----
-
-## Pure CI Variant (No Claude Code)
-
-This section provides an equivalent, pure CI implementation of the same stages without using `claude -p`. Use these snippets directly in your CI job steps. Secrets must still be provided via CI secret stores (`LT_USERNAME`, `LT_ACCESS_KEY`, `ANTHROPIC_API_KEY` if needed).
-
-Notes:
-- Always use `--agent --headless` for `kane-cli` runs in CI.
-- Set `--timeout` and `--max-steps` to prevent hanging runs.
-- Upload `~/.testmuai/kaneai/sessions/` or `reports/` as artifacts for debugging failures.
-
----
-
-### ANALYZE_REQUIREMENTS (CI)
-
-Install dependencies, then run a kane-cli check for each requirement/objective. Example (POSIX shell):
-
-```bash
-# Install tools
-npm install -g @testmuai/kane-cli
-
-# If you keep kane/objectives.json, iterate it; else generate objectives from requirements/*.txt
-RESULTS_DIR=$(mktemp -d)
-for obj in $(jq -c '.[]' kane/objectives.json); do
-   id=$(echo "$obj" | jq -r '.scenario_id')
-   objective=$(echo "$obj" | jq -r '.objective')
-   kane-cli run "$objective" \
-      --url https://ecommerce-playground.lambdatest.io/ \
-      --username "$LT_USERNAME" --access-key "$LT_ACCESS_KEY" \
-      --agent --headless --timeout 120 --max-steps 15 > "$RESULTS_DIR/${id}.ndjson" 2>&1 &
-done
-wait
-
-# Parse last line of each ndjson into a JSON array
-jq -s 'map(try (fromjson) catch null)' "$RESULTS_DIR"/*.ndjson > requirements/analyzed_requirements.json || true
-
-# Print Summary Table
-echo "| ID | Status | Time | Link | Summary |"
-echo "|----|--------|------|------|---------|"
-for f in "$RESULTS_DIR"/*.ndjson; do
-  result=$(tail -1 "$f")
-  id=$(basename "$f" .ndjson)
-  status=$(echo "$result" | jq -r '.status')
-  duration=$(echo "$result" | jq -r '.duration')
-  link=$(echo "$result" | jq -r '.link')
-  summary=$(echo "$result" | jq -r '.one_liner')
-  echo "| $id | $status | ${duration}s | [View]($link) | $summary |"
-done
-
-rm -rf "$RESULTS_DIR"
-```
-
-### MANAGE_SCENARIOS (CI)
-
-Run a small script to reconcile `requirements/analyzed_requirements.json` → `scenarios/scenarios.json`. Example using Python:
-
-```bash
-python3 - <<'PY'
-import json, pathlib
-req = json.loads(pathlib.Path('requirements/analyzed_requirements.json').read_text())
-scn_path = pathlib.Path('scenarios/scenarios.json')
-scenarios = json.loads(scn_path.read_text()) if scn_path.exists() else []
-# reconciliation logic (same rules as agent version)
-... # implement minimal reconciliation or reuse existing project script
-PY
-```
-
-(You can commit a small helper script `ci/manage_scenarios.py` and call it here.)
-
-### GENERATE_TESTS (CI)
-
-Use a generator script to write/update `tests/selenium/test_credit_cards.py` and `kane/objectives.json`. Example:
-
-```bash
-python3 ci/generate_tests_from_scenarios.py --scenarios scenarios/scenarios.json --out tests/selenium/test_products.py
-```
-
-### SELECT_TESTS (CI)
-
-Build `reports/test_execution_manifest.json` and `reports/pytest_selection.txt` (one pytest node per line). Example (bash):
-
-```bash
-# Full run or incremental
-if [ "$FULL_RUN" = "true" ]; then
-   jq -r '.[] | "tests/selenium/test_credit_cards.py::test_\(.id|ascii_downcase)"' scenarios/scenarios.json > reports/pytest_selection.txt
-else
-   jq -r '.[] | select(.status=="new" or .status=="updated") | "tests/selenium/test_credit_cards.py::test_\(.id|ascii_downcase)"' scenarios/scenarios.json > reports/pytest_selection.txt
-fi
-```
-
-### EXECUTE TESTS (CI)
-
-Run Selenium tests locally (headless) or on HyperExecute / LambdaTest grid.
-
-Option A — run pytest directly (local runner with Chrome installed):
-
-```bash
-pytest -q -k "$(paste -sd ' or ' reports/pytest_selection.txt)" --html=reports/results.html --self-contained-html
-```
-
-Option B — run via HyperExecute (parallel cloud):
-
-```bash
-# Ensure hyperexecute binary present in runner
-./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
-```
-
-(Note: Ensure `hyperexecute.yaml` uses a robust testDiscovery command — avoid `echo -e`. Use a Python here-doc, as shown in the repo's `hyperexecute.yaml`.)
-
-### TRACEABILITY_REPORT (CI)
-
-Collect artifacts and produce the traceability matrix as before. Example:
-
-```bash
-python3 ci/build_traceability.py \
-   --requirements requirements/analyzed_requirements.json \
-   --scenarios scenarios/scenarios.json \
-   --pytest-reports reports/ --kane-results reports/kane_results.json \
-   --out reports/traceability_matrix.md
-```
-
-### RELEASE_RECOMMENDATION (CI)
-
-Run the same analyzer script used by the agent version to compute the GREEN/YELLOW/RED verdict and write `reports/release_recommendation.md`.
-
-```bash
-python3 ci/release_recommendation.py --trace reports/traceability_matrix.md --out reports/release_recommendation.md
-```
-
----
-
-Add these steps as separate CI jobs (analyze → manage → generate → select → execute → report) in your CI YAML. Provide secrets via the CI provider's secret manager and upload the `reports/` and `~/.testmuai/kaneai/sessions/` directories as artifacts for debugging.
