@@ -121,7 +121,6 @@ def main():
                 passed += 1
         else:
             overall = "passed" if kane_result == "passed" else "failed"
-            untested.append(requirement["id"])
         if overall != "passed":
             failing.append(scenario_id)
 
@@ -146,6 +145,12 @@ def main():
         )
 
     pass_rate = round((passed / executed) * 100, 1) if executed else 0.0
+    # Only flag requirements as untested when selenium actually ran for at least some tests.
+    # If executed == 0, no selenium results are available yet — omit the untested warning.
+    untested_to_report = [
+        req_id for req_id in untested
+        if executed > 0
+    ]
     summary = {
         "run_type": manifest.get("run_type", "unknown"),
         "requirements_covered": len([row for row in rows if row["scenario_id"] != "n/a"]),
@@ -153,7 +158,7 @@ def main():
         "executed": executed,
         "passed": passed,
         "pass_rate": pass_rate,
-        "untested_requirements": untested,
+        "untested_requirements": untested_to_report,
         "failing_scenarios": [scenario_id for scenario_id in failing if scenario_id != "n/a"],
     }
 
@@ -164,13 +169,11 @@ def main():
         f"- Requirements covered: {summary['requirements_covered']}/{summary['requirements_total']}",
         f"- Selenium pass rate: {summary['pass_rate']}% ({summary['passed']} passed, {summary['executed'] - summary['passed']} failed or skipped)",
         "",
-        "| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | Kane Session | What Kane Saw | Selenium | Selenium Session | Overall |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | What Kane Saw | Overall |",
+        "|---|---|---|---|---|---|---|",
     ]
 
     for row in rows:
-        kane_link_cell = f"[view]({row['kane_session_link']})" if row.get("kane_session_link") else "-"
-        selenium_link_cell = f"[view]({row['session_link']})" if row.get("session_link") else "-"
         one_liner = row.get("kane_one_liner", "") or "-"
         lines.append(
             f"| {row['requirement_id']} "
@@ -178,10 +181,7 @@ def main():
             f"| {row['scenario_id']} "
             f"| {row['test_case_id']} "
             f"| {row['kane_ai_result']} "
-            f"| {kane_link_cell} "
             f"| {one_liner} "
-            f"| {row['selenium_result']} "
-            f"| {selenium_link_cell} "
             f"| {row['overall']} |"
         )
 

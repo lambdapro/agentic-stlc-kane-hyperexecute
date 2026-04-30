@@ -185,6 +185,7 @@ jobs:
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           ./hyperexecute \
             --user "$LT_USERNAME" \
@@ -292,18 +293,18 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Build traceability matrix
-        run: python ci/build_traceability.py
-
-      - name: Generate release recommendation
-        run: python ci/release_recommendation.py
-
       - name: Fetch HyperExecute and Kane AI API details
         if: always()
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
         run: python ci/fetch_api_details.py
+
+      - name: Build traceability matrix
+        run: python ci/build_traceability.py
+
+      - name: Generate release recommendation
+        run: python ci/release_recommendation.py
 
       - name: Build full pipeline summary
         if: always()

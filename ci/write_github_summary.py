@@ -66,7 +66,6 @@ def main():
     kane_sessions_api = {s["requirement_id"]: s for s in api_details.get("kane_sessions", [])}
 
     # ── Classify requirements ──────────────────────────────────────────────
-    kane_passed = [r for r in requirements if r.get("kane_status") == "passed"]
     kane_failed = [r for r in requirements if r.get("kane_status") == "failed"]
 
     # ── Classify scenarios ─────────────────────────────────────────────────
@@ -280,34 +279,18 @@ def main():
     emit("")
 
     if trace_rows:
-        emit("| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | What Kane Saw | Kane Session | Selenium | Selenium Session | Result |")
-        emit("|---|---|---|---|---|---|---|---|---|---|")
+        emit("| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | What Kane Saw | Result |")
+        emit("|---|---|---|---|---|---|---|")
         for row in trace_rows:
-            se = row.get("selenium_result", "not_run")
             kane = row.get("kane_ai_result", "unknown")
             req_id = row.get("requirement_id", "")
-
-            # Kane session link — test_url from run_end, now stored directly on the row
-            kane_session = row.get("kane_session_link", "")
-            if not kane_session:
-                session = kane_sessions_api.get(req_id, {})
-                req_item = next((r for r in requirements if r["id"] == req_id), {})
-                kane_session = session.get("link") or (req_item.get("kane_links", [""])[0] if req_item.get("kane_links") else "")
-            kane_link_md = f"[view]({kane_session})" if kane_session else "—"
-
-            # one_liner: what Kane AI actually observed (from run_end NDJSON)
             one_liner = row.get("kane_one_liner", "") or "—"
-
-            # Selenium session link — LambdaTest Automate URL from conftest teardown
-            selenium_session = row.get("session_link", "")
-            selenium_link_md = f"[view]({selenium_session})" if selenium_session else "—"
-
             overall = row.get("overall", "unknown")
             icon = "✅" if overall == "passed" else "❌"
             criterion = row["acceptance_criterion"][:55] + "…" if len(row["acceptance_criterion"]) > 55 else row["acceptance_criterion"]
             emit(
                 f"| `{req_id}` | {criterion} | `{row['scenario_id']}` | `{row['test_case_id']}` "
-                f"| {kane} | {one_liner} | {kane_link_md} | {se} | {selenium_link_md} | {icon} {overall} |"
+                f"| {kane} | {one_liner} | {icon} {overall} |"
             )
         emit("")
 
@@ -336,8 +319,8 @@ def main():
             emit(f"- ❌ `{sc}`")
         emit("")
 
-    if untested:
-        emit("**Requirements not yet covered by Selenium (Kane AI only):**")
+    if untested and executed > 0:
+        emit("**Requirements not yet covered by Selenium:**")
         for req in untested:
             emit(f"- ⚠️ `{req}`")
         emit("")

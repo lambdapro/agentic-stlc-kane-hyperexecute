@@ -13,6 +13,7 @@ concurrency: 5
 env:
   LT_USERNAME: ${LT_USERNAME}
   LT_ACCESS_KEY: ${LT_ACCESS_KEY}
+  GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
 
 cacheKey: '{{ checksum "requirements.txt" }}'
 cacheDirectories:
