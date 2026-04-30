@@ -63,10 +63,10 @@ jobs:
           name: analyzed-requirements
           path: requirements/analyzed_requirements.json
 
-  # ── Stages 2-5: Gemma agent manages scenarios, generates tests, runs on
+  # ── Stages 2-5: Orchestrator manages scenarios, generates tests, runs on
   #    HyperExecute, fetches results via MCP, builds traceability + verdict ──
   orchestrate:
-    name: Stages 2-5 · Gemma Agent Orchestrator
+    name: Stages 2-5 · Orchestrator
     needs: analyze
     runs-on: ubuntu-latest
     env:
@@ -91,9 +91,8 @@ jobs:
           curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
           chmod +x hyperexecute
 
-      - name: Run Gemma Agent (Stages 2-5)
+      - name: Run Agent (Stages 2-5)
         env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
           GITHUB_RUN_NUMBER: ${{ github.run_number }}

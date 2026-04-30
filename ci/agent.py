@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
 """
 Agentic SDLC Orchestrator — Stages 2-5.
-
-Replaces: manage_scenarios, generate_tests_from_scenarios, select_tests,
-          fetch_api_details, build_traceability, release_recommendation,
-          write_github_summary.
-
-LLM  : Google AI Studio (gemini-2.0-flash default, override via GEMMA_MODEL)
-MCP  : HyperExecute MCP at https://mcp.lambdatest.com/mcp
-Requires env: GOOGLE_API_KEY, LT_USERNAME, LT_ACCESS_KEY
+Fully deterministic: no LLM required.
 """
 import asyncio
 import json
@@ -18,28 +11,25 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-import google.generativeai as genai
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 
 # ── Runtime config ─────────────────────────────────────────────────────────
-MCP_URL      = "https://mcp.lambdatest.com/mcp"
-MODEL        = os.environ.get("GEMMA_MODEL", "gemini-2.0-flash")
-LT_USERNAME  = os.environ.get("LT_USERNAME", "")
-LT_ACCESS_KEY= os.environ.get("LT_ACCESS_KEY", "")
-FULL_RUN     = os.environ.get("FULL_RUN", "true").lower() == "true"
-TARGET_URL   = "https://ecommerce-playground.lambdatest.io/"
-TODAY        = datetime.now(timezone.utc).date().isoformat()
-RUN_NUMBER   = os.environ.get("GITHUB_RUN_NUMBER", "")
-BUILD_NAME   = (
+MCP_URL       = "https://mcp.lambdatest.com/mcp"
+LT_USERNAME   = os.environ.get("LT_USERNAME", "")
+LT_ACCESS_KEY = os.environ.get("LT_ACCESS_KEY", "")
+FULL_RUN      = os.environ.get("FULL_RUN", "true").lower() == "true"
+TARGET_URL    = "https://ecommerce-playground.lambdatest.io/"
+TODAY         = datetime.now(timezone.utc).date().isoformat()
+RUN_NUMBER    = os.environ.get("GITHUB_RUN_NUMBER", "")
+BUILD_NAME    = (
     f"Agentic SDLC #{RUN_NUMBER} | {TODAY}" if RUN_NUMBER
     else f"Agentic SDLC | {TODAY}"
 )
-SUMMARY_PATH = os.environ.get("GITHUB_STEP_SUMMARY", "")
 
 JOB_ID_RE = re.compile(r"jobId=([\w-]+)")
 
-# ── Deterministic test generation (copied from generate_tests_from_scenarios) ──
+# ── Deterministic test generation ──────────────────────────────────────────
 FUNCTION_NAMES = {
     "SC-001": "test_sc_001_navigate_to_products_and_view_list",
     "SC-002": "test_sc_002_filter_products_by_category",
@@ -130,429 +120,300 @@ def _build_test_function(scenario: dict) -> str:
     )
 
 
-# ── Local tools ────────────────────────────────────────────────────────────
-def _tool_read_file(path: str) -> str:
-    p = Path(path)
-    return p.read_text(encoding="utf-8") if p.exists() else f"[not found: {path}]"
+# ── Stage 2: Sync scenarios (deterministic diff) ───────────────────────────
+def sync_scenarios(requirements: list, existing: list) -> list:
+    existing_by_req = {s["requirement_id"]: s for s in existing}
+    current_req_ids = {r["id"] for r in requirements}
+
+    max_num = 0
+    for sc in existing:
+        m = re.match(r"SC-(\d+)", sc.get("id", ""))
+        if m:
+            max_num = max(max_num, int(m.group(1)))
+    next_num = max_num + 1
+
+    result = []
+    for req in requirements:
+        existing_sc = existing_by_req.get(req["id"])
+        if existing_sc is None:
+            sc_id  = f"SC-{next_num:03d}"
+            tc_id  = f"TC-{next_num:03d}"
+            next_num += 1
+            status = "new"
+        else:
+            sc_id  = existing_sc["id"]
+            tc_id  = existing_sc.get("test_case_id", sc_id.replace("SC-", "TC-"))
+            status = (
+                "updated" if existing_sc.get("source_description") != req["description"]
+                else "active"
+            )
+
+        result.append({
+            "id":                 sc_id,
+            "test_case_id":       tc_id,
+            "requirement_id":     req["id"],
+            "title":              req.get("kane_one_liner") or req.get("title", req["id"]),
+            "status":             status,
+            "source_description": req["description"],
+            "steps":              req.get("kane_steps") or [
+                f"Navigate to {TARGET_URL}", "Verify the acceptance criterion"
+            ],
+            "expected_result":    req.get("kane_summary") or req["description"],
+            "kane_url":           TARGET_URL,
+            "last_verified":      TODAY,
+        })
+
+    # Preserve deprecated entries for removed requirements
+    for sc in existing:
+        if sc["requirement_id"] not in current_req_ids:
+            result.append({**sc, "status": "deprecated"})
+
+    return result
 
 
-def _tool_write_file(path: str, content: str) -> str:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
-    return f"ok: wrote {path} ({len(content)} chars)"
-
-
-def _tool_generate_and_write_tests(scenario_ids_json: str) -> str:
-    """Generate test_products.py from the given list of scenario IDs."""
-    try:
-        ids: list[str] = json.loads(scenario_ids_json)
-    except json.JSONDecodeError as exc:
-        return f"error: invalid JSON list — {exc}"
-
-    scenarios_raw = Path("scenarios/scenarios.json")
-    if not scenarios_raw.exists():
-        return "error: scenarios/scenarios.json not found"
-    all_scenarios = json.loads(scenarios_raw.read_text(encoding="utf-8"))
-    selected = [s for s in all_scenarios if s["id"] in ids]
-
-    lines = [TEST_HEADER.rstrip(), ""]
-    for sc in selected:
+# ── Stage 3: Generate tests ─────────────────────────────────────────────────
+def generate_tests(scenarios: list) -> None:
+    active = [s for s in scenarios if s["status"] != "deprecated"]
+    lines  = [TEST_HEADER.rstrip(), ""]
+    objectives = []
+    for sc in active:
         lines.append(_build_test_function(sc).rstrip())
         lines.append("")
-    content = "\n".join(lines).rstrip() + "\n"
+        objectives.append({
+            "scenario_id": sc["id"],
+            "test_case_id": sc.get("test_case_id", ""),
+            "objective": sc.get("title", sc["id"]),
+        })
 
     out = Path("tests/selenium/test_products.py")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(content, encoding="utf-8")
-    return f"ok: wrote {out} with {len(selected)} test(s)"
+    out.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+    Path("kane").mkdir(exist_ok=True)
+    Path("kane/objectives.json").write_text(json.dumps(objectives, indent=2), encoding="utf-8")
+    print(f"[generate_tests] wrote {len(active)} test(s)")
 
 
-def _tool_write_test_selection(scenario_ids_json: str) -> str:
-    """Write reports/pytest_selection.txt for HyperExecute test discovery."""
-    try:
-        ids: list[str] = json.loads(scenario_ids_json)
-    except json.JSONDecodeError as exc:
-        return f"error: {exc}"
+# ── Stage 4: Write test selection ──────────────────────────────────────────
+def write_test_selection(scenarios: list) -> list:
+    if FULL_RUN:
+        selected = [s for s in scenarios if s["status"] != "deprecated"]
+    else:
+        selected = [s for s in scenarios if s["status"] in ("new", "updated")]
 
     lines = []
-    for sc_id in ids:
-        fn = FUNCTION_NAMES.get(sc_id, f"test_{sc_id.lower().replace('-','_')}")
+    for sc in selected:
+        fn = FUNCTION_NAMES.get(sc["id"], f"test_{sc['id'].lower().replace('-','_')}")
         lines.append(f"tests/selenium/test_products.py::{fn}")
 
     Path("reports").mkdir(exist_ok=True)
     Path("reports/pytest_selection.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return f"ok: wrote {len(lines)} test node(s) to reports/pytest_selection.txt"
+
+    run_type = "full" if FULL_RUN else "incremental"
+    manifest = {
+        "selected_scenarios": [s["id"] for s in selected],
+        "run_type": run_type,
+    }
+    Path("reports/test_execution_manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    print(f"[test_selection] {len(lines)} test(s) — {run_type} run")
+    return selected
 
 
-def _tool_run_hyperexecute() -> str:
-    """Run HyperExecute CLI and return job ID + outcome."""
+# ── Stage 5: Run HyperExecute ──────────────────────────────────────────────
+def run_hyperexecute() -> str:
     cli = "./hyperexecute"
     if not Path(cli).exists():
-        return json.dumps({"error": "hyperexecute binary not found"})
+        print("[hyperexecute] binary not found — skipping")
+        return ""
+
     cmd = [cli, "--user", LT_USERNAME, "--key", LT_ACCESS_KEY, "--config", "hyperexecute.yaml"]
-    print(f"[run_hyperexecute] starting: {' '.join(cmd[:3])} ...")
+    print("[hyperexecute] starting ...")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     combined = result.stdout + result.stderr
 
-    match = JOB_ID_RE.search(combined)
-    job_id = match.group(1) if match else ""
-
-    # Save log for diagnostics
     Path("reports").mkdir(exist_ok=True)
     Path("reports/hyperexecute-cli.log").write_text(combined, encoding="utf-8")
 
-    return json.dumps({
-        "job_id": job_id,
-        "exit_code": result.returncode,
-        "output_tail": combined[-3000:],
-    })
+    match = JOB_ID_RE.search(combined)
+    job_id = match.group(1) if match else ""
+    print(f"[hyperexecute] done — job_id={job_id!r}  exit_code={result.returncode}")
+    return job_id
 
 
-def _tool_emit_github_summary(content: str) -> str:
-    """Append markdown to GitHub Actions step summary."""
-    print(content)
-    if SUMMARY_PATH:
-        with open(SUMMARY_PATH, "a", encoding="utf-8") as f:
-            f.write(content + "\n")
-    return "ok: summary written"
+# ── Stage 6: Fetch results via MCP ────────────────────────────────────────
+async def fetch_and_save_mcp_results(job_id: str) -> None:
+    if not job_id:
+        print("[mcp] no job_id — writing empty api_details.json")
+        _write_api_details({}, [], job_id)
+        return
 
+    mcp_url_auth = f"{MCP_URL}?username={LT_USERNAME}&accessKey={LT_ACCESS_KEY}"
+    headers = {"x-lt-username": LT_USERNAME, "x-lt-access-key": LT_ACCESS_KEY}
 
-LOCAL_TOOLS: dict = {
-    "read_file":              _tool_read_file,
-    "write_file":             _tool_write_file,
-    "generate_and_write_tests": _tool_generate_and_write_tests,
-    "write_test_selection":   _tool_write_test_selection,
-    "run_hyperexecute":       _tool_run_hyperexecute,
-    "emit_github_summary":    _tool_emit_github_summary,
-}
-
-LOCAL_DECLARATIONS = [
-    {
-        "name": "read_file",
-        "description": "Read a file from the local filesystem. Returns file contents or [not found] message.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {"path": {"type": "STRING", "description": "Relative file path"}},
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "write_file",
-        "description": "Write text content to a file (creates parent directories).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "path":    {"type": "STRING", "description": "Relative file path"},
-                "content": {"type": "STRING", "description": "Content to write"},
-            },
-            "required": ["path", "content"],
-        },
-    },
-    {
-        "name": "generate_and_write_tests",
-        "description": "Generate tests/selenium/test_products.py using deterministic Selenium bodies for the given scenario IDs.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "scenario_ids_json": {
-                    "type": "STRING",
-                    "description": 'JSON array of scenario IDs to include, e.g. ["SC-001","SC-002"]',
-                },
-            },
-            "required": ["scenario_ids_json"],
-        },
-    },
-    {
-        "name": "write_test_selection",
-        "description": "Write reports/pytest_selection.txt with pytest node IDs for HyperExecute test discovery.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "scenario_ids_json": {
-                    "type": "STRING",
-                    "description": 'JSON array of scenario IDs to run, e.g. ["SC-001","SC-003"]',
-                },
-            },
-            "required": ["scenario_ids_json"],
-        },
-    },
-    {
-        "name": "run_hyperexecute",
-        "description": "Execute tests on LambdaTest HyperExecute. Blocks until complete. Returns job_id and exit_code.",
-        "parameters": {"type": "OBJECT", "properties": {}, "required": []},
-    },
-    {
-        "name": "emit_github_summary",
-        "description": "Write markdown to the GitHub Actions step summary (GITHUB_STEP_SUMMARY).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {"content": {"type": "STRING", "description": "Markdown content"}},
-            "required": ["content"],
-        },
-    },
-]
-
-# ── System prompt ──────────────────────────────────────────────────────────
-SYSTEM_PROMPT = f"""
-You are an agentic QA engineer orchestrating a software testing pipeline.
-Kane AI already verified requirements in Stage 1. You run Stages 2-5.
-
-CONSTANTS:
-  TARGET_URL  = {TARGET_URL}
-  BUILD_NAME  = {BUILD_NAME}
-  FULL_RUN    = {FULL_RUN}
-  TODAY       = {TODAY}
-  LT_USERNAME = {LT_USERNAME}
-
-## Steps — complete ALL in order:
-
-### Step 1 — Read requirements
-  read_file("requirements/analyzed_requirements.json")
-  Each item has: id (AC-NNN), title, description, kane_status, kane_one_liner, kane_steps, kane_summary.
-
-### Step 2 — Manage scenarios
-  read_file("scenarios/scenarios.json")  ← returns [] if the file is missing.
-  Rules for syncing:
-    - Requirement has no matching scenario (by requirement_id) → create new scenario, status="new"
-    - Requirement description differs from scenario source_description → status="updated"
-    - Scenario requirement_id not in current requirements → status="deprecated"
-    - Otherwise → status="active"
-  Assign IDs SC-001, SC-002, ... in requirement order.
-  Map test_case_id = "TC-" + SC number (e.g. SC-001 → TC-001).
-  Set kane_url = "{TARGET_URL}", last_verified = "{TODAY}".
-  Use requirement description as source_description, kane_one_liner as title (fallback to title field).
-  Use kane_steps as steps list (fallback to ["Navigate to {TARGET_URL}", "Verify the acceptance criterion"]).
-  Use kane_summary as expected_result (fallback to description).
-  write_file("scenarios/scenarios.json", <valid JSON array string>)
-
-### Step 3 — Generate tests
-  Call generate_and_write_tests with ALL non-deprecated scenario IDs as a JSON array string.
-  Example: generate_and_write_tests(scenario_ids_json='["SC-001","SC-002","SC-003"]')
-
-### Step 4 — Write test selection
-  If FULL_RUN={FULL_RUN}: include ALL non-deprecated scenarios.
-  Otherwise: include only new and updated scenarios.
-  Call write_test_selection(scenario_ids_json='[...]')
-
-### Step 5 — Run HyperExecute
-  Call run_hyperexecute() — no arguments needed.
-  From the returned JSON, extract the job_id field.
-  If job_id is empty, look for it in output_tail using pattern jobId=XXXXX.
-
-### Step 6 — Fetch results via MCP
-  Call getHyperExecuteJobInfo with the job_id.
-  Call getHyperExecuteJobSessions with the job_id to get per-test results.
-  Each session has: name (test function name), status ("passed"/"failed"), sessionID or testID.
-  Session link format: https://automation.lambdatest.com/test?testID={{testID}}
-
-### Step 7 — Build traceability
-  Match each scenario to its session result by looking for the function name pattern in session name.
-  Compute:
-    executed = count of sessions with status "passed" or "failed"
-    passed   = count with status "passed"
-    pass_rate = round(passed/executed*100, 1) if executed > 0 else 0.0
-  Write "reports/traceability_matrix.json" with this exact schema:
-  {{
-    "summary": {{
-      "executed": <int>,
-      "passed": <int>,
-      "pass_rate": <float>,
-      "failing_scenarios": [<SC-NNN>, ...],
-      "requirements_covered": <int>,
-      "requirements_total": <int>,
-      "run_type": "full" or "incremental"
-    }},
-    "rows": [
-      {{
-        "requirement_id": "AC-001",
-        "acceptance_criterion": "<description>",
-        "scenario_id": "SC-001",
-        "test_case_id": "TC-001",
-        "kane_ai_result": "passed",
-        "kane_one_liner": "<one liner>",
-        "kane_steps": [...],
-        "kane_summary": "<summary>",
-        "selenium_result": "passed",
-        "session_link": "https://automation.lambdatest.com/test?testID=...",
-        "overall": "passed"
-      }}
-    ]
-  }}
-
-### Step 8 — Release recommendation
-  Verdict: GREEN if pass_rate >= 90 and no failing scenarios.
-           YELLOW if pass_rate >= 75.
-           RED otherwise.
-  write_file("reports/release_recommendation.md", <markdown>)
-  Markdown format:
-  ```
-  # QA Release Recommendation
-  **Verdict:** GREEN
-  ## Summary
-  - Requirements covered: 5/5
-  - Scenarios executed: 5
-  - Pass rate: 100.0% (5 passed, 0 failed)
-  ## Failing Scenarios
-  - None
-  ## Recommendation
-  Approve release because coverage is complete and all executed tests passed.
-  ```
-
-### Step 9 — GitHub summary
-  emit_github_summary with full markdown pipeline report including:
-  - "## Stage 1 · Kane AI Requirement Verification" table: Req ID | Title | Kane Status | What Kane Saw
-  - "## Stage 5 · Traceability Matrix" table: Req | Criterion | Scenario | TC | Kane AI | What Kane Saw | Result
-  - "## Regression on HyperExecute" table: Test | Status | Session link
-  - "## Release Recommendation" with verdict and pass rate
-
-When ALL steps are done, reply with: PIPELINE COMPLETE — Verdict: <GREEN|YELLOW|RED>
-"""
-
-
-# ── MCP schema conversion ──────────────────────────────────────────────────
-def _mcp_schema_to_dict(schema) -> dict:
-    type_map = {
-        "string": "STRING", "number": "NUMBER", "integer": "INTEGER",
-        "boolean": "BOOLEAN", "object": "OBJECT", "array": "ARRAY",
-    }
-    s = schema or {}
-    props = {}
-    for k, v in (s.get("properties") or {}).items():
-        props[k] = {
-            "type": type_map.get(v.get("type", "string"), "STRING"),
-            "description": v.get("description", ""),
-        }
-    return {
-        "type": "OBJECT",
-        "properties": props,
-        "required": s.get("required", []),
-    }
-
-
-# ── Agent loop ─────────────────────────────────────────────────────────────
-async def run_agent(mcp_session: ClientSession) -> None:
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-
-    # Discover MCP tools
     try:
-        mcp_result = await mcp_session.list_tools()
-        mcp_tool_names = {t.name for t in mcp_result.tools}
-        mcp_declarations = [
-            {
-                "name": t.name,
-                "description": t.description or "",
-                "parameters": _mcp_schema_to_dict(t.inputSchema),
-            }
-            for t in mcp_result.tools
-        ]
-        print(f"[MCP] {len(mcp_declarations)} tools: {sorted(mcp_tool_names)}")
-    except Exception as exc:
-        print(f"[MCP] could not list tools: {exc} — continuing with local tools only")
-        mcp_tool_names = set()
-        mcp_declarations = []
-
-    all_declarations = LOCAL_DECLARATIONS + mcp_declarations
-    tools = [{"function_declarations": all_declarations}]
-
-    model = genai.GenerativeModel(
-        model_name=MODEL,
-        tools=tools,
-        system_instruction=SYSTEM_PROMPT,
-    )
-    chat = model.start_chat()
-
-    print(f"[Agent] starting with model={MODEL}, tools={len(all_declarations)}")
-    response = await asyncio.to_thread(
-        chat.send_message,
-        "Begin the pipeline orchestration now. Complete all 9 steps in order. "
-        "Start immediately with Step 1: read_file('requirements/analyzed_requirements.json').",
-    )
-
-    for turn in range(60):
-        parts = response.candidates[0].content.parts
-        calls = [p.function_call for p in parts if hasattr(p, "function_call") and p.function_call.name]
-
-        if not calls:
-            text = "".join(p.text for p in parts if hasattr(p, "text"))
-            print(f"\n[Agent] finished:\n{text}")
-            break
-
-        responses = []
-        for fc in calls:
-            name = fc.name
-            args = dict(fc.args)
-            print(f"\n[Tool →] {name}({json.dumps(args, default=str)[:200]})")
-
-            try:
-                if name in LOCAL_TOOLS:
-                    result = LOCAL_TOOLS[name](**args)
-                elif name in mcp_tool_names:
-                    mcp_call = await mcp_session.call_tool(name, args)
-                    result = mcp_call.content[0].text if mcp_call.content else "{}"
-                else:
-                    result = f"[unknown tool: {name}]"
-            except Exception as exc:
-                result = f"[error: {exc}]"
-
-            print(f"[← Result] {str(result)[:400]}")
-            responses.append({
-                "function_response": {"name": name, "response": {"result": str(result)}}
-            })
-
-        response = await asyncio.to_thread(chat.send_message, responses)
-    else:
-        print("[Agent] reached max turns (60) — pipeline may be incomplete")
-
-
-async def main() -> None:
-    # Try auth via query params first, fall back to headers
-    mcp_url_with_auth = f"{MCP_URL}?username={LT_USERNAME}&accessKey={LT_ACCESS_KEY}"
-    mcp_headers = {
-        "x-lt-username": LT_USERNAME,
-        "x-lt-access-key": LT_ACCESS_KEY,
-    }
-    print(f"[MCP] connecting to {MCP_URL} ...")
-    try:
-        async with sse_client(mcp_url_with_auth, headers=mcp_headers) as (read, write):
+        async with sse_client(mcp_url_auth, headers=headers) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                await run_agent(session)
+
+                # Poll until job is no longer running (max 15 min)
+                job_info: dict = {}
+                for attempt in range(30):
+                    raw = await session.call_tool("getHyperExecuteJobInfo", {"jobId": job_id})
+                    text = raw.content[0].text if raw.content else "{}"
+                    try:
+                        job_info = json.loads(text)
+                    except json.JSONDecodeError:
+                        job_info = {}
+                    status = job_info.get("status", "unknown")
+                    print(f"[mcp] attempt {attempt+1} — job status: {status}")
+                    if status not in ("running", "initiated", "queued"):
+                        break
+                    await asyncio.sleep(30)
+
+                raw_sessions = await session.call_tool("getHyperExecuteJobSessions", {"jobId": job_id})
+                sessions_text = raw_sessions.content[0].text if raw_sessions.content else "[]"
+                try:
+                    sessions_list = json.loads(sessions_text)
+                except json.JSONDecodeError:
+                    sessions_list = []
+
+                _write_api_details(job_info, sessions_list, job_id)
+
     except Exception as exc:
-        print(f"[MCP] connection failed ({exc}) — running with local tools only")
-        # Create a dummy session-less run using only local tools
-        await _run_without_mcp()
+        print(f"[mcp] connection failed: {exc} — writing empty api_details.json")
+        _write_api_details({}, [], job_id)
 
 
-async def _run_without_mcp() -> None:
-    """Fallback: run agent without MCP tools (no HyperExecute result fetching via MCP)."""
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel(
-        model_name=MODEL,
-        tools=[{"function_declarations": LOCAL_DECLARATIONS}],
-        system_instruction=SYSTEM_PROMPT + "\n\nNOTE: HyperExecute MCP is unavailable. After run_hyperexecute completes, skip Steps 6-7 (no MCP result fetching). Write traceability with selenium_result='not_run' for all rows and pass_rate=0. Proceed to Step 8 and 9.",
+def _write_api_details(job_info: dict, sessions_list: list, job_id: str) -> None:
+    he_summary = {
+        "job_id":                job_info.get("jobId") or job_id,
+        "job_link":              job_info.get("jobLink", ""),
+        "status":                job_info.get("status", "unknown"),
+        "total_tasks":           job_info.get("totalTasks", 0),
+        "selenium_reports_link": job_info.get("seleniumReportsLink", ""),
+        "runtime_logs_link":     job_info.get("runtimeLogsLink", ""),
+    }
+
+    tasks_raw = (
+        sessions_list if isinstance(sessions_list, list)
+        else sessions_list.get("tasks") or sessions_list.get("sessions") or []
     )
-    chat = model.start_chat()
-    response = await asyncio.to_thread(
-        chat.send_message,
-        "Begin the pipeline orchestration now. MCP is unavailable — complete Steps 1-5, then 8-9.",
+    he_tasks = []
+    for task in tasks_raw:
+        session_id   = task.get("sessionID") or task.get("testID") or task.get("id", "")
+        session_link = (
+            f"https://automation.lambdatest.com/test?testID={session_id}"
+            if session_id else ""
+        )
+        he_tasks.append({
+            "name":         task.get("name", ""),
+            "task_id":      task.get("taskID") or task.get("id", ""),
+            "status":       task.get("status", "unknown"),
+            "session_link": session_link,
+        })
+
+    api_details = {"he_summary": he_summary, "he_tasks": he_tasks, "kane_sessions": []}
+    Path("reports").mkdir(exist_ok=True)
+    Path("reports/api_details.json").write_text(
+        json.dumps(api_details, indent=2), encoding="utf-8"
+    )
+    print(f"[api_details] saved {len(he_tasks)} task(s) — status={he_summary['status']}")
+
+
+# ── Stage 7: Release recommendation (threshold-based) ─────────────────────
+def write_recommendation(he_tasks: list, requirements_total: int) -> None:
+    total  = len(he_tasks)
+    passed = sum(1 for t in he_tasks if t["status"] == "passed")
+    failed = total - passed
+    pass_rate = round(passed / total * 100, 1) if total > 0 else 0.0
+
+    if total == 0:
+        verdict = "YELLOW"
+        rec = "Test results not yet available — manual review required before release."
+    elif pass_rate >= 90 and failed == 0:
+        verdict = "GREEN"
+        rec = "Approve release — coverage is complete and all executed tests passed."
+    elif pass_rate >= 75:
+        verdict = "YELLOW"
+        rec = f"Conditional release — {failed} test(s) failed. Review failures before proceeding."
+    else:
+        verdict = "RED"
+        rec = f"Block release — pass rate is {pass_rate}% ({failed} failed). Investigate failures."
+
+    failing_lines = (
+        "- None" if failed == 0
+        else "\n".join(
+            f"- {t['name'] or t['task_id']}"
+            for t in he_tasks if t["status"] != "passed"
+        )
     )
 
-    for _ in range(40):
-        parts = response.candidates[0].content.parts
-        calls = [p.function_call for p in parts if hasattr(p, "function_call") and p.function_call.name]
-        if not calls:
-            text = "".join(p.text for p in parts if hasattr(p, "text"))
-            print(f"[Agent fallback done]\n{text}")
-            break
-        responses = []
-        for fc in calls:
-            name, args = fc.name, dict(fc.args)
-            print(f"[Tool →] {name}({str(args)[:120]})")
-            result = LOCAL_TOOLS.get(name, lambda **k: "[unknown]")(**args) if name in LOCAL_TOOLS else f"[no tool: {name}]"
-            print(f"[← Result] {str(result)[:300]}")
-            responses.append({"function_response": {"name": name, "response": {"result": str(result)}}})
-        response = await asyncio.to_thread(chat.send_message, responses)
+    content = f"""# QA Release Recommendation
+**Verdict:** {verdict}
+## Summary
+- Requirements covered: {requirements_total}/{requirements_total}
+- Scenarios executed: {total}
+- Pass rate: {pass_rate}% ({passed} passed, {failed} failed)
+## Failing Scenarios
+{failing_lines}
+## Recommendation
+{rec}
+"""
+    Path("reports/release_recommendation.md").write_text(content, encoding="utf-8")
+    print(f"[recommendation] Verdict: {verdict}  pass_rate={pass_rate}%")
+
+
+# ── Post-pipeline: deterministic CI report scripts ─────────────────────────
+def post_pipeline() -> None:
+    for script in ["ci/build_traceability.py", "ci/write_github_summary.py"]:
+        print(f"\n[post-pipeline] running {script} ...")
+        result = subprocess.run(
+            ["python", script],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+        if result.stdout:
+            print(result.stdout)
+        if result.returncode != 0:
+            print(f"[WARNING] {script} exited {result.returncode}: {result.stderr[:500]}")
+        else:
+            print(f"[post-pipeline] {script} ok")
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+async def main() -> None:
+    print(f"[pipeline] starting — FULL_RUN={FULL_RUN}  BUILD={BUILD_NAME}")
+
+    # Stage 2: Sync scenarios
+    req_path = Path("requirements/analyzed_requirements.json")
+    requirements = json.loads(req_path.read_text(encoding="utf-8"))
+    sc_path  = Path("scenarios/scenarios.json")
+    existing = json.loads(sc_path.read_text(encoding="utf-8")) if sc_path.exists() else []
+    scenarios = sync_scenarios(requirements, existing)
+    sc_path.write_text(json.dumps(scenarios, indent=2), encoding="utf-8")
+    counts = {s: sum(1 for x in scenarios if x["status"] == s) for s in ("new", "updated", "active", "deprecated")}
+    print(f"[scenarios] {counts}")
+
+    # Stage 3: Generate tests
+    generate_tests(scenarios)
+
+    # Stage 4: Write test selection
+    write_test_selection(scenarios)
+
+    # Stage 5: Run HyperExecute
+    job_id = run_hyperexecute()
+
+    # Stage 6: Fetch MCP results → reports/api_details.json
+    await fetch_and_save_mcp_results(job_id)
+
+    # Stage 7: Release recommendation
+    api_details = json.loads(Path("reports/api_details.json").read_text(encoding="utf-8"))
+    write_recommendation(api_details.get("he_tasks", []), len(requirements))
+
+    # Post: CI report scripts (traceability + GitHub summary)
+    post_pipeline()
+    print("\n[pipeline] complete")
 
 
 if __name__ == "__main__":
