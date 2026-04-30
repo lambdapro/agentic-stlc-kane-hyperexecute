@@ -59,7 +59,11 @@ def make_title(description):
 EXIT_STATUS = {0: "passed", 1: "failed", 2: "error", 3: "timeout"}
 
 
-def run_kane(description):
+def _run_kane_indexed(args):
+    return run_kane(*args)
+
+
+def run_kane(index, description):
     username = os.environ.get("LT_USERNAME", "")
     access_key = os.environ.get("LT_ACCESS_KEY", "")
     if not username or not access_key:
@@ -87,13 +91,17 @@ def run_kane(description):
     except Exception:
         pass
 
+    # Name the session AC-{index} | <criterion> so every Kane AI session in
+    # LambdaTest is uniquely identified and aligns with the traceability matrix.
+    session_name = f"AC-{index:03d} | {description[:80].strip()}"
+
     caps = {
         "browserName": "Chrome",
         "browserVersion": "latest",
         "LT:Options": {
             "platform": "Windows 10",
             "build": "Kane AI Requirement Verification",
-            "name": "Requirement Analysis",
+            "name": session_name,
             "user": username,
             "accessKey": access_key,
             "network": True,
@@ -202,7 +210,7 @@ def main():
         } for _ in criteria]
     else:
         with ThreadPoolExecutor(max_workers=5) as executor:
-            results = list(executor.map(run_kane, criteria))
+            results = list(executor.map(_run_kane_indexed, enumerate(criteria, start=1)))
 
     for index, (description, kane) in enumerate(zip(criteria, results), start=1):
         test_url = kane.get("test_url", "")

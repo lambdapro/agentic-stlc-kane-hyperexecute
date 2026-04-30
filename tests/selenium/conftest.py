@@ -17,6 +17,15 @@ def driver(request):
     lt_username = os.environ.get("LT_USERNAME", "")
     lt_access_key = os.environ.get("LT_ACCESS_KEY", "")
 
+    # Build a consistent session name that aligns with the traceability matrix:
+    # SC-001 | TC-001 | test_sc_001_<slug>
+    # Markers are available at setup time via request.node.
+    scenario_marker = request.node.get_closest_marker("scenario")
+    requirement_marker = request.node.get_closest_marker("requirement")
+    _scenario_id = scenario_marker.args[0] if scenario_marker else "unknown"
+    _tc_id = f"TC-{_scenario_id.split('-')[1]}" if "-" in _scenario_id else "TC-000"
+    session_name = f"{_scenario_id} | {_tc_id} | {request.node.name}"
+
     lt_options = {
         "username": lt_username,
         "accessKey": lt_access_key,
@@ -24,6 +33,7 @@ def driver(request):
         "browserName": "Chrome",
         "browserVersion": "latest",
         "build": "eCommerce Products Test Suite",
+        "name": session_name,
         "project": "Agentic SDLC",
         "video": True,
         "visual": True,
@@ -49,6 +59,13 @@ def driver(request):
 
     rep = getattr(request.node, "rep_call", None)
     status = "passed" if (rep and rep.passed) else "failed"
+
+    # Mark the LambdaTest session as passed or failed so the Automate dashboard
+    # and traceability report reflect the actual assertion outcome.
+    try:
+        d.execute_script(f"lambda-status={status}")
+    except Exception:
+        pass
 
     Path("reports").mkdir(exist_ok=True)
     Path(f"reports/kane_result_{scenario_id}.json").write_text(
