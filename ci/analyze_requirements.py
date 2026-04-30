@@ -11,6 +11,13 @@ from pathlib import Path
 TARGET_URL = "https://ecommerce-playground.lambdatest.io/"
 
 
+def build_name():
+    """Consistent build label shared by Kane AI and Selenium sessions in the same run."""
+    run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"Agentic SDLC #{run_number} | {today}" if run_number else f"Agentic SDLC | {today}"
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--requirements", default="requirements/search.txt")
@@ -100,7 +107,7 @@ def run_kane(index, description):
         "browserVersion": "latest",
         "LT:Options": {
             "platform": "Windows 10",
-            "build": "Kane AI Requirement Verification",
+            "build": build_name(),
             "name": session_name,
             "user": username,
             "accessKey": access_key,

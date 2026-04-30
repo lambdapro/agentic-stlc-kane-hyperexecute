@@ -1,10 +1,18 @@
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+
+
+def _build_name():
+    """Consistent build label shared by Kane AI and Selenium sessions in the same run."""
+    run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"Agentic SDLC #{run_number} | {today}" if run_number else f"Agentic SDLC | {today}"
 
 
 def pytest_configure(config):
@@ -32,7 +40,7 @@ def driver(request):
         "platformName": "Windows 10",
         "browserName": "Chrome",
         "browserVersion": "latest",
-        "build": "eCommerce Products Test Suite",
+        "build": _build_name(),
         "name": session_name,
         "project": "Agentic SDLC",
         "video": True,
