@@ -5,7 +5,34 @@
 
 > **Open source under the MIT License.** Fork it, adapt it, ship it.
 
-An end-to-end **Agentic Software Testing Lifecycle (STLC)** where plain-English requirements drive every stage of QA — from requirement analysis to parallel cloud execution and a final release verdict. Kane CLI is the sole test executor: it receives a plain-English objective, drives a real browser on LambdaTest Automate, and returns a pass/fail result with a session link.
+An end-to-end **Agentic Software Testing Lifecycle (STLC)** where plain-English requirements drive every stage of QA — from requirement analysis to parallel cloud execution and a final release verdict. Kane AI CLI analyzes and verifies requirements against the live site; Selenium WebDriver tests are generated automatically and executed at scale on LambdaTest Grid via HyperExecute.
+
+---
+
+## How the Agentic STLC works — 7 steps
+
+> Commit your requirements. Everything else is automatic.
+
+**Step 1 — Commit requirements and trigger the pipeline**
+Edit `requirements/search.txt` in plain English, then `git push`. GitHub Actions detects the change and starts the pipeline immediately — no manual trigger needed.
+
+**Step 2 — Kane AI CLI verifies each acceptance criterion**
+`ci/analyze_requirements.py` runs `kane-cli run` on each criterion against the live site. Kane AI drives a real browser, verifies the behaviour is achievable, and records a pass/fail result with a session link per criterion.
+
+**Step 3 — Scenario pool is synchronized**
+`ci/manage_scenarios.py` diffs the verified requirements against the existing `scenarios/scenarios.json`. New requirements get new scenario records. Changed requirements update their scenario. Requirements that no longer exist are deprecated. Nothing is deleted — the full history is preserved.
+
+**Step 4 — Selenium automation scripts are generated**
+`ci/generate_tests_from_scenarios.py` reads the scenario pool and writes a pytest test file (`tests/selenium/test_products.py`). Each scenario becomes one test function with site-specific Selenium actions derived from its steps and URL.
+
+**Step 5 — Hub address and capabilities are injected**
+`tests/selenium/conftest.py` provides a `driver` fixture that connects every test to the LambdaTest Selenium Grid (`hub.lambdatest.com/wd/hub`) with the correct capabilities — platform, browser, video recording, network logs — so no test file contains credentials or infrastructure details.
+
+**Step 6 — HyperExecute CLI triggers the suite in parallel**
+The CI job downloads the HyperExecute CLI and submits the selected tests. HyperExecute fans them out across multiple cloud VMs simultaneously. Each VM runs one pytest node, opens one real browser session on LambdaTest Grid, and uploads its artifacts on completion.
+
+**Step 7 — Pipeline reports results for every phase with links**
+`ci/build_traceability.py` maps every result back to its requirement. `ci/release_recommendation.py` emits a GREEN / YELLOW / RED verdict. `ci/write_github_summary.py` writes a single GitHub Actions summary covering all 7 stages — with clickable links to the HyperExecute job, per-test LambdaTest Automate session videos, and Kane AI verification sessions.
 
 ---
 
@@ -13,10 +40,11 @@ An end-to-end **Agentic Software Testing Lifecycle (STLC)** where plain-English 
 
 | Tool | Role in the pipeline |
 |---|---|
-| **Kane CLI** (`@testmuai/kane-cli`) | AI browser agent — verifies acceptance criteria in Stage 1 AND executes every test in Stage 4 using natural-language objectives |
-| **HyperExecute CLI** | Cloud parallel test runner — fans out Kane-wrapped pytest tests across multiple VMs simultaneously |
-| **pytest** | Test orchestration framework — wraps Kane CLI calls, reports pass/fail per test node to HyperExecute |
-| **Python CI Scripts** | Stage orchestrators — synchronize requirements, scenarios, and generated test code |
+| **Kane CLI** (`@testmuai/kane-cli`) | AI browser agent — verifies each acceptance criterion against the live site in Stage 1; not used during test execution |
+| **Selenium WebDriver** | Test executor — each generated test drives a real browser on LambdaTest Grid via `webdriver.Remote` |
+| **HyperExecute CLI** | Cloud parallel test runner — fans out pytest Selenium tests across multiple VMs simultaneously |
+| **pytest** | Test orchestration framework — runs Selenium tests, captures pass/fail per node, uploads artifacts |
+| **Python CI Scripts** | Stage orchestrators — synchronize requirements, scenarios, generate test code, and build reports |
 
 ---
 
@@ -37,10 +65,10 @@ git push
 GitHub Actions picks up the push and runs the full pipeline:
 
 ```
-Stage 1: Analyze   → Kane AI browses the live site, verifies each acceptance criterion
+Stage 1: Analyze   → Kane AI verifies each acceptance criterion on the live site
 Stage 2: Manage    → Diffs scenarios.json, adds new, updates changed, deprecates removed
-Stage 3: Generate  → Writes Kane-wrapped pytest tests for every new/changed scenario
-Stage 4: Execute   → HyperExecute fans out tests; each test calls kane-cli run with its objective
+Stage 3: Generate  → Writes Selenium WebDriver pytest tests for every new/changed scenario
+Stage 4: Execute   → HyperExecute fans out tests; each VM opens a real browser on LambdaTest Grid
 Stage 5: Report    → Traceability matrix + GREEN / YELLOW / RED release recommendation
 ```
 
@@ -56,7 +84,7 @@ No human writes a single test. No one maps a requirement to code. The pipeline d
 | One CI runner is too slow for 50+ tests | **HyperExecute** fans out to 4–1000 parallel VMs |
 | Tests drift from requirements | **Scenarios and tests are regenerated** every time requirements change |
 | QA verdict is manual and subjective | **Release recommendation** is generated from actual test data |
-| Brittle CSS selectors break on site changes | **Kane objectives are plain English** — no selector maintenance |
+| Brittle test maintenance burden | **Tests are regenerated** from scenarios on every requirements change |
 
 ---
 
@@ -64,11 +92,11 @@ No human writes a single test. No one maps a requirement to code. The pipeline d
 
 The `.github/workflows/agentic-stlc.yml` workflow executes the following Python-driven stages:
 
-1. **Stage 1 - Analyze Requirements**: `ci/analyze_requirements.py` runs Kane CLI against the live site to verify each acceptance criterion.
-2. **Stage 2 - Manage Scenarios**: `ci/manage_scenarios.py` synchronizes the scenario catalog with analyzed requirements.
-3. **Stage 3 - Generate Tests**: `ci/generate_tests_from_scenarios.py` generates Kane-wrapped pytest tests — one function per scenario, each calling `kane-cli run <objective>`.
-4. **Stage 4 - Execution**: Selected tests are submitted to **HyperExecute**; each VM runs `pytest "$test"` which invokes Kane CLI for that objective.
-5. **Stage 5 - Reporting**: Requirement traceability matrix and release verdict are produced.
+1. **Stage 1 - Analyze Requirements**: `ci/analyze_requirements.py` runs `kane-cli run` against the live site to verify each acceptance criterion and records a session link per criterion.
+2. **Stage 2 - Manage Scenarios**: `ci/manage_scenarios.py` synchronizes the scenario catalog — new requirements produce new scenarios, changed requirements mark their scenario as updated, removed requirements are deprecated.
+3. **Stage 3 - Generate Tests**: `ci/generate_tests_from_scenarios.py` generates Selenium WebDriver pytest tests — one function per scenario using site-specific locators and WebDriverWait assertions.
+4. **Stage 4 - Execution**: Selected tests are submitted to **HyperExecute**; each VM runs `pytest "$test"` which connects to LambdaTest Selenium Grid via the `driver` fixture in `conftest.py`.
+5. **Stage 5 - Reporting**: Requirement traceability matrix links every result to its acceptance criterion; a GREEN / YELLOW / RED release recommendation is generated from actual test data.
 
 ---
 
@@ -103,10 +131,8 @@ The `.github/workflows/agentic-stlc.yml` workflow executes the following Python-
 │   └── write_github_summary.py
 │
 ├── tests/selenium/
-│   ├── conftest.py                          # pytest marker registration
-│   ├── pages/
-│   │   └── products_page.py                 # Page Object Model (local runs)
-│   └── test_products.py                     # Kane-wrapped tests (auto-generated)
+│   ├── conftest.py                          # LambdaTest hub driver fixture + marker registration
+│   └── test_products.py                     # Selenium WebDriver tests (auto-generated)
 │
 ├── reports/                                 # Runtime output — gitignored
 │   ├── traceability_matrix.md
@@ -122,10 +148,11 @@ The `.github/workflows/agentic-stlc.yml` workflow executes the following Python-
 
 | Tool | Required for | Install |
 |---|---|---|
-| Node.js 18+ | Kane CLI | [nodejs.org](https://nodejs.org) |
+| Node.js 18+ | Kane CLI (Stage 1) | [nodejs.org](https://nodejs.org) |
 | Python 3.11+ | CI scripts + pytest | [python.org](https://python.org) |
-| Kane CLI | All stages | `npm install -g @testmuai/kane-cli` |
+| Kane CLI | Stage 1 requirement analysis | `npm install -g @testmuai/kane-cli` |
 | HyperExecute CLI | Cloud parallel execution | Downloaded automatically by CI |
+| LambdaTest account | Selenium Grid + HyperExecute | [lambdatest.com](https://www.lambdatest.com) |
 
 ---
 
@@ -229,27 +256,31 @@ python ci/release_recommendation.py
 cat reports/release_recommendation.md
 ```
 
-### Run a single Kane test
+### Run a single Selenium test
 
 ```bash
-# Single test — Kane AI drives a real browser on LambdaTest Automate
+# Set credentials first
+export LT_USERNAME=your_username
+export LT_ACCESS_KEY=your_access_key
+
+# Single test — opens a real Chrome session on LambdaTest Grid
 PYTHONPATH=. pytest "tests/selenium/test_products.py::test_sc_001_navigate_to_products_and_view_list" -v -s
 
 # All tests
 PYTHONPATH=. pytest tests/selenium/test_products.py -v -s
 ```
 
-Each test prints its LambdaTest Automate session link on pass:
+After each test the conftest fixture writes a session result and prints the LambdaTest Automate link:
 
 ```
 PASSED  tests/selenium/test_products.py::test_sc_001_navigate_to_products_and_view_list
 
-Kane session: https://automation.lambdatest.com/test?testID=...
+Session: https://automation.lambdatest.com/test?testID=...
 ```
 
 ---
 
-## Kane CLI — verify any requirement manually
+## Kane CLI — verify any requirement manually (Stage 1)
 
 ```bash
 # Verify a requirement directly
@@ -438,7 +469,7 @@ git commit -m "feat: add requirement for product comparison"
 git push
 ```
 
-GitHub Actions automatically runs all 5 stages. New scenarios and Kane-wrapped tests are generated with no manual scripting.
+GitHub Actions automatically runs all 5 stages. New scenarios and Selenium tests are generated with no manual scripting.
 
 To run just the affected stages locally:
 

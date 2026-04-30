@@ -1,7 +1,10 @@
+import json
 import os
-import shutil
-import subprocess
+from pathlib import Path
+
 import pytest
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
 
 def pytest_configure(config):
@@ -9,16 +12,62 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "requirement(id): requirement ID this test covers")
 
 
-@pytest.fixture(scope="session", autouse=True)
-def kane_auth():
-    username = os.environ.get("LT_USERNAME", "")
-    access_key = os.environ.get("LT_ACCESS_KEY", "")
-    if username and access_key:
-        kane = shutil.which("kane-cli") or "kane-cli"
-        subprocess.run(
-            [kane, "login", "--username", username, "--access-key", access_key],
-            check=False,
-        )
+@pytest.fixture(scope="function")
+def driver(request):
+    lt_username = os.environ.get("LT_USERNAME", "")
+    lt_access_key = os.environ.get("LT_ACCESS_KEY", "")
+
+    lt_options = {
+        "username": lt_username,
+        "accessKey": lt_access_key,
+        "platformName": "Windows 10",
+        "browserName": "Chrome",
+        "browserVersion": "latest",
+        "build": "eCommerce Products Test Suite",
+        "project": "Agentic SDLC",
+        "video": True,
+        "visual": True,
+        "network": True,
+        "console": True,
+    }
+
+    options = Options()
+    options.set_capability("LT:Options", lt_options)
+
+    hub_url = f"https://{lt_username}:{lt_access_key}@hub.lambdatest.com/wd/hub"
+    d = webdriver.Remote(command_executor=hub_url, options=options)
+
+    yield d
+
+    session_id = d.session_id
+    session_link = f"https://automation.lambdatest.com/test?testID={session_id}"
+
+    scenario_marker = request.node.get_closest_marker("scenario")
+    requirement_marker = request.node.get_closest_marker("requirement")
+    scenario_id = scenario_marker.args[0] if scenario_marker else "unknown"
+    requirement_id = requirement_marker.args[0] if requirement_marker else "unknown"
+
+    rep = getattr(request.node, "rep_call", None)
+    status = "passed" if (rep and rep.passed) else "failed"
+
+    Path("reports").mkdir(exist_ok=True)
+    Path(f"reports/kane_result_{scenario_id}.json").write_text(
+        json.dumps(
+            {
+                "requirement_id": requirement_id,
+                "scenario_id": scenario_id,
+                "test_case_id": f"TC-{scenario_id.split('-')[1]}",
+                "status": status,
+                "link": session_link,
+                "one_liner": "",
+                "duration": None,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    d.quit()
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)

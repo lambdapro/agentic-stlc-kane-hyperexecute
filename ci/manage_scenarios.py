@@ -22,7 +22,6 @@ def load_json(path, default):
 
 
 def title_and_steps(requirement):
-    requirement_id = requirement["id"]
     description = requirement["description"].lower()
     if "view a list of available products" in description or "product section" in description:
         return (
@@ -136,7 +135,10 @@ def main():
             "expected_result": expected,
             "status": status,
             "kane_objective": requirement["description"],
-            "kane_url": requirement["url"],
+            # Preserve the existing kane_url when updating an existing scenario so
+            # scenario-specific starting URLs (e.g. category pages) are not reset
+            # to the homepage on every requirements change.
+            "kane_url": scenario.get("kane_url", requirement["url"]) if scenario else requirement["url"],
             "kane_last_status": requirement.get("kane_status", "pending"),
             "test_case_id": scenario.get("test_case_id", f"TC-{index:03d}"),
             "last_verified": today,

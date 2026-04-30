@@ -1,50 +1,53 @@
 version: 0.1
-runson: linux
+globalTimeout: 90
+testSuiteTimeout: 90
+testSuiteStep: 90
+
+runson: win
+
 autosplit: true
-concurrency: 4
+retryOnFailure: true
+maxRetries: 1
+concurrency: 5
 
 env:
   LT_USERNAME: ${LT_USERNAME}
   LT_ACCESS_KEY: ${LT_ACCESS_KEY}
-  TARGET_URL: https://ecommerce-playground.lambdatest.io/
 
-runtime:
-  language: python
-  version: "3.11"
-
-cacheKey: "{{ checksum \"requirements.txt\" }}"
+cacheKey: '{{ checksum "requirements.txt" }}'
 cacheDirectories:
   - .pip_cache
 
 pre:
-  - npm install -g @testmuai/kane-cli
   - pip install --cache-dir .pip_cache -r requirements.txt
+
+runtime:
+  language: python
+  version: "3.11"
 
 testDiscovery:
   type: raw
   mode: dynamic
   command: cat reports/pytest_selection.txt
 
-testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --junitxml=reports/junit.xml
+testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --html=reports/report.html --junitxml=reports/junit.xml
 
 mergeArtifacts: true
 uploadArtefacts:
-  - name: kane-test-reports
+  - name: TestReports
     path:
       - reports/
 
-retryOnFailure: true
-maxRetries: 1
-
 report: true
+partialReports:
+  type: json
+  location: reports/
+  frameworkName: extent
 
 post:
   - echo "Tests complete"
 
-globalTimeout: 90
-testSuiteTimeout: 75
-
 jobLabel:
   - ecommerce-products
   - agentic-sdlc
-  - kane-ai
+  - selenium
