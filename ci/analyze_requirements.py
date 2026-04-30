@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import subprocess
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,7 +75,39 @@ def run_kane(description):
     # kane-cli login must NOT be used in CI; it opens an OAuth browser flow.
     # Browser runs on LambdaTest's infrastructure via the Playwright WSS endpoint
     # so no local Chrome installation is needed on the CI runner.
-    ws_endpoint = f"wss://{username}:{access_key}@cdp.lambdatest.com/playwright"
+    # LambdaTest Playwright CDP requires capabilities as a URL query parameter.
+    # Embedding user:key@ in the host causes a 400 "unable to parse capabilities".
+    playwright_version = ""
+    try:
+        result = subprocess.run(
+            ["playwright", "--version"], capture_output=True, text=True, check=False
+        )
+        parts = result.stdout.strip().split()
+        playwright_version = parts[1] if len(parts) >= 2 else ""
+    except Exception:
+        pass
+
+    caps = {
+        "browserName": "Chrome",
+        "browserVersion": "latest",
+        "LT:Options": {
+            "platform": "Windows 10",
+            "build": "Kane AI Requirement Verification",
+            "name": "Requirement Analysis",
+            "user": username,
+            "accessKey": access_key,
+            "network": True,
+            "video": True,
+            "console": True,
+            "tunnel": False,
+            "tunnelName": "",
+            "playwrightClientVersion": playwright_version,
+        },
+    }
+    ws_endpoint = (
+        "wss://cdp.lambdatest.com/playwright?capabilities="
+        + urllib.parse.quote(json.dumps(caps))
+    )
     command = [
         "kane-cli", "run", description,
         TARGET_URL,
