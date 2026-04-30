@@ -13,7 +13,7 @@ TARGET_URL = "https://ecommerce-playground.lambdatest.io/"
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--requirements", default="requirements")
+    parser.add_argument("--requirements", default="requirements/search.txt")
     parser.add_argument("--output", default="requirements/analyzed_requirements.json")
     parser.add_argument("--kane-results", default="reports/kane_results.json")
     parser.add_argument("--skip-kane", action="store_true")
@@ -108,9 +108,12 @@ def run_kane(description):
         "wss://cdp.lambdatest.com/playwright?capabilities="
         + urllib.parse.quote(json.dumps(caps))
     )
+    # Embed the target URL in the task description so Kane AI navigates there.
+    # Passing the URL as a positional arg is silently ignored; Kane defaults to
+    # kaneai-playground.lambdatest.io when the description alone is provided.
+    task = f"On {TARGET_URL} — {description}"
     command = [
-        "kane-cli", "run", description,
-        TARGET_URL,
+        "kane-cli", "run", task,
         "--username", username,
         "--access-key", access_key,
         "--ws-endpoint", ws_endpoint,
