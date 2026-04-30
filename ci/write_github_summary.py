@@ -149,8 +149,11 @@ def main():
                     kane_links = r.get("kane_links", [])
                     session = kane_sessions_api.get(r["id"], {})
                     session_link = session.get("link") or (kane_links[0] if kane_links else "")
-                    link = f" — [Kane AI session]({session_link})" if session_link else ""
-                    emit(f"- {icon} `{r['id']}` {r['title']}{link}")
+                    link = f" — [session]({session_link})" if session_link else ""
+                    # one_liner from run_end: what Kane AI actually observed on the site
+                    one_liner = r.get("kane_one_liner", "")
+                    observed = f" · _{one_liner}_" if one_liner else ""
+                    emit(f"- {icon} `{r['id']}` {r['title']}{observed}{link}")
             emit("")
 
         if kane_failed:
@@ -159,8 +162,10 @@ def main():
                 kane_links = r.get("kane_links", [])
                 session = kane_sessions_api.get(r["id"], {})
                 session_link = session.get("link") or (kane_links[0] if kane_links else "")
-                link = f" — [Kane AI session]({session_link})" if session_link else ""
-                emit(f"- ❌ `{r['id']}` {r['title']}{link}")
+                link = f" — [session]({session_link})" if session_link else ""
+                one_liner = r.get("kane_one_liner", "")
+                observed = f" · _{one_liner}_" if one_liner else ""
+                emit(f"- ❌ `{r['id']}` {r['title']}{observed}{link}")
             emit("")
 
     # ── Stage 2: Scenario Management ──────────────────────────────────────
@@ -275,25 +280,54 @@ def main():
     emit("")
 
     if trace_rows:
-        emit("| Requirement | Acceptance Criterion | Scenario | Test Case | Kane AI | Kane Link | Selenium | Result |")
-        emit("|---|---|---|---|---|---|---|---|")
+        emit("| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | What Kane Saw | Kane Session | Selenium | Selenium Session | Result |")
+        emit("|---|---|---|---|---|---|---|---|---|---|")
         for row in trace_rows:
             se = row.get("selenium_result", "not_run")
             kane = row.get("kane_ai_result", "unknown")
             req_id = row.get("requirement_id", "")
 
-            # Lookup Kane session link from API metadata or analyzed requirements
-            session = kane_sessions_api.get(req_id, {})
-            req_item = next((r for r in requirements if r["id"] == req_id), {})
-            kane_link = session.get("link") or (req_item.get("kane_links", [""])[0] if req_item.get("kane_links") else "")
-            kane_link_md = f"[View session]({kane_link})" if kane_link else "—"
+            # Kane session link — test_url from run_end, now stored directly on the row
+            kane_session = row.get("kane_session_link", "")
+            if not kane_session:
+                session = kane_sessions_api.get(req_id, {})
+                req_item = next((r for r in requirements if r["id"] == req_id), {})
+                kane_session = session.get("link") or (req_item.get("kane_links", [""])[0] if req_item.get("kane_links") else "")
+            kane_link_md = f"[view]({kane_session})" if kane_session else "—"
+
+            # one_liner: what Kane AI actually observed (from run_end NDJSON)
+            one_liner = row.get("kane_one_liner", "") or "—"
+
+            # Selenium session link — LambdaTest Automate URL from conftest teardown
+            selenium_session = row.get("session_link", "")
+            selenium_link_md = f"[view]({selenium_session})" if selenium_session else "—"
 
             overall = row.get("overall", "unknown")
             icon = "✅" if overall == "passed" else "❌"
+            criterion = row["acceptance_criterion"][:55] + "…" if len(row["acceptance_criterion"]) > 55 else row["acceptance_criterion"]
             emit(
-                f"| `{req_id}` | {row['acceptance_criterion'][:60]}… | "
-                f"`{row['scenario_id']}` | `{row['test_case_id']}` | {kane} | {kane_link_md} | {se} | {icon} {overall} |"
+                f"| `{req_id}` | {criterion} | `{row['scenario_id']}` | `{row['test_case_id']}` "
+                f"| {kane} | {one_liner} | {kane_link_md} | {se} | {selenium_link_md} | {icon} {overall} |"
             )
+        emit("")
+
+        # Collapsible Kane AI detail — steps and full summary per requirement
+        emit("<details>")
+        emit("<summary>Kane AI verification detail (expand)</summary>")
+        emit("")
+        for row in trace_rows:
+            if not row.get("kane_steps") and not row.get("kane_summary"):
+                continue
+            emit(f"**`{row['requirement_id']}` — {row['acceptance_criterion']}**")
+            emit("")
+            if row.get("kane_steps"):
+                for step in row["kane_steps"]:
+                    emit(f"- {step}")
+                emit("")
+            if row.get("kane_summary"):
+                emit(f"_{row['kane_summary']}_")
+                emit("")
+        emit("</details>")
         emit("")
 
     if failing_scenarios:

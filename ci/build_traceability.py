@@ -33,7 +33,7 @@ def load_json(path, default):
 
 
 def load_kane_execution_results(reports_dir):
-    """Read per-test Kane result files written by the test suite."""
+    """Read per-test Selenium result files written by the conftest fixture."""
     results = {}
     for f in sorted(Path(reports_dir).glob("kane_result_SC-*.json")):
         try:
@@ -74,7 +74,6 @@ def main():
     kane_results = {
         item["requirement_id"]: item for item in load_json(args.kane_results, [])
     }
-    # Per-test Kane execution results saved by the test suite (primary source)
     kane_execution = load_kane_execution_results(Path(args.pytest_junit).parent)
     junit_results = load_junit_results(args.pytest_junit)
     scenarios_by_requirement = {scenario["requirement_id"]: scenario for scenario in scenarios}
@@ -90,14 +89,31 @@ def main():
         test_case_id = scenario.get("test_case_id") if scenario else "n/a"
         scenario_id = scenario.get("id") if scenario else "n/a"
         function_name = FUNCTION_NAMES.get(scenario_id, f"test_{scenario_id.lower().replace('-', '_')}")
-        # Kane execution result (saved per-test) is the primary source
+
+        # Selenium execution result from conftest fixture (primary source)
         kane_exec = kane_execution.get(scenario_id, {})
-        session_link = kane_exec.get("link", "")
+        selenium_session_link = kane_exec.get("link", "")
         if kane_exec:
             selenium_result = kane_exec.get("status", "not_run")
         else:
             selenium_result = junit_results.get(function_name, "not_run")
-        kane_result = kane_results.get(requirement["id"], {}).get("status", requirement.get("kane_status", "unknown"))
+
+        # analyzed_requirements.json is the canonical Stage 1 source.
+        # kane_results.json is supplemental; only use when kane_status is absent
+        # (e.g. legacy runs that predated the field).
+        kane_result = (
+            requirement.get("kane_status")
+            or kane_results.get(requirement["id"], {}).get("status")
+            or "unknown"
+        )
+        # Kane AI session link: test_url from run_end stored in kane_links
+        kane_links = requirement.get("kane_links", [])
+        kane_session_link = kane_links[0] if kane_links else ""
+        # one_liner and summary from run_end NDJSON for the report detail section
+        kane_one_liner = requirement.get("kane_one_liner", "")
+        kane_summary = requirement.get("kane_summary", "")
+        kane_steps = requirement.get("kane_steps", [])
+
         if selenium_result != "not_run":
             overall = selenium_result
             executed += 1
@@ -115,9 +131,15 @@ def main():
                 "acceptance_criterion": requirement["description"],
                 "scenario_id": scenario_id,
                 "test_case_id": test_case_id,
+                # Kane AI verification fields (Stage 1)
                 "kane_ai_result": kane_result,
+                "kane_session_link": kane_session_link,
+                "kane_one_liner": kane_one_liner,
+                "kane_summary": kane_summary,
+                "kane_steps": kane_steps,
+                # Selenium execution fields (Stage 4)
                 "selenium_result": selenium_result,
-                "session_link": session_link,
+                "session_link": selenium_session_link,
                 "analysis_note": "" if selenium_result != "not_run" else "Test result not yet available.",
                 "overall": overall,
             }
@@ -142,20 +164,56 @@ def main():
         f"- Requirements covered: {summary['requirements_covered']}/{summary['requirements_total']}",
         f"- Selenium pass rate: {summary['pass_rate']}% ({summary['passed']} passed, {summary['executed'] - summary['passed']} failed or skipped)",
         "",
-        "| Requirement ID | Acceptance Criterion | Scenario ID | Test Case ID | Kane Verify | Kane Execute | Session | Overall |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | Kane Session | What Kane Saw | Selenium | Selenium Session | Overall |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     for row in rows:
-        link_cell = f"[view]({row['session_link']})" if row.get("session_link") else "-"
+        kane_link_cell = f"[view]({row['kane_session_link']})" if row.get("kane_session_link") else "-"
+        selenium_link_cell = f"[view]({row['session_link']})" if row.get("session_link") else "-"
+        one_liner = row.get("kane_one_liner", "") or "-"
         lines.append(
-            f"| {row['requirement_id']} | {row['acceptance_criterion']} | {row['scenario_id']} | {row['test_case_id']} | {row['kane_ai_result']} | {row['selenium_result']} | {link_cell} | {row['overall']} |"
+            f"| {row['requirement_id']} "
+            f"| {row['acceptance_criterion']} "
+            f"| {row['scenario_id']} "
+            f"| {row['test_case_id']} "
+            f"| {row['kane_ai_result']} "
+            f"| {kane_link_cell} "
+            f"| {one_liner} "
+            f"| {row['selenium_result']} "
+            f"| {selenium_link_cell} "
+            f"| {row['overall']} |"
         )
 
-    kane_only_issues = [row for row in rows if row["selenium_result"] == "passed" and row["kane_ai_result"] != "passed"]
+    # Detail section: expand kane_steps and kane_summary for each requirement
+    lines.extend(["", "## Kane AI Verification Detail", ""])
+    for row in rows:
+        lines.append(f"### {row['requirement_id']} - {row['acceptance_criterion']}")
+        if row.get("kane_one_liner"):
+            lines.append(f"> {row['kane_one_liner']}")
+        lines.append("")
+        if row.get("kane_steps"):
+            lines.append("**Steps observed by Kane AI:**")
+            lines.extend([f"- {step}" for step in row["kane_steps"]])
+            lines.append("")
+        if row.get("kane_summary"):
+            lines.append(f"**Full summary:** {row['kane_summary']}")
+            lines.append("")
+        if row.get("kane_session_link"):
+            lines.append(f"**TestMu AI session:** [{row['kane_session_link']}]({row['kane_session_link']})")
+            lines.append("")
+
+    # Only warn when Kane explicitly failed; not for pending/skipped/unknown
+    kane_only_issues = [
+        row for row in rows
+        if row["selenium_result"] == "passed" and row["kane_ai_result"] == "failed"
+    ]
     if kane_only_issues:
         lines.extend(["", "## Kane Analysis Warnings", ""])
-        lines.extend([f"- {row['scenario_id']}: Kane analysis returned `{row['kane_ai_result']}` while Selenium passed." for row in kane_only_issues])
+        lines.extend([
+            f"- {row['scenario_id']}: Kane analysis returned `failed` while Selenium passed."
+            for row in kane_only_issues
+        ])
 
     if summary["untested_requirements"]:
         lines.extend(["", "## Untested Requirements", ""])

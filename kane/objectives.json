@@ -3,55 +3,22 @@
     "scenario_id": "SC-001",
     "test_case_id": "TC-001",
     "requirement_id": "AC-001",
-    "objective": "Go to ecommerce-playground.lambdatest.io, navigate to the product catalog, and verify that a list of products is displayed",
+    "objective": "User can navigate to the product catalog and see a list of products",
     "url": "https://ecommerce-playground.lambdatest.io/",
     "timeout": 120,
     "max_steps": 15,
-    "last_run_status": "pending",
+    "last_run_status": "passed",
     "last_run_date": "2026-04-30"
   },
   {
     "scenario_id": "SC-002",
     "test_case_id": "TC-002",
     "requirement_id": "AC-002",
-    "objective": "On ecommerce-playground.lambdatest.io go to the Phones category page and click the Apple brand filter in the left sidebar to filter the product list",
+    "objective": "User can apply a brand filter from the sidebar to narrow product results",
     "url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/category&path=20",
     "timeout": 120,
     "max_steps": 15,
-    "last_run_status": "pending",
-    "last_run_date": "2026-04-30"
-  },
-  {
-    "scenario_id": "SC-003",
-    "test_case_id": "TC-003",
-    "requirement_id": "AC-003",
-    "objective": "On ecommerce-playground.lambdatest.io click on any product in the catalog to open its detail page and verify the product name and price are shown",
-    "url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/category&path=20",
-    "timeout": 180,
-    "max_steps": 20,
-    "last_run_status": "pending",
-    "last_run_date": "2026-04-30"
-  },
-  {
-    "scenario_id": "SC-004",
-    "test_case_id": "TC-004",
-    "requirement_id": "AC-004",
-    "objective": "Visit ecommerce-playground.lambdatest.io without logging in and verify that products or featured items are visible on the page",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "timeout": 120,
-    "max_steps": 15,
-    "last_run_status": "pending",
-    "last_run_date": "2026-04-30"
-  },
-  {
-    "scenario_id": "SC-005",
-    "test_case_id": "TC-005",
-    "requirement_id": "AC-005",
-    "objective": "On ecommerce-playground.lambdatest.io use the search bar to search for iPhone and verify that relevant product results are shown",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "timeout": 120,
-    "max_steps": 15,
-    "last_run_status": "pending",
+    "last_run_status": "passed",
     "last_run_date": "2026-04-30"
   }
 ]

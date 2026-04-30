@@ -180,13 +180,7 @@ export LT_ACCESS_KEY=your_lambdatest_access_key
 | `LT_USERNAME` | [LambdaTest Dashboard > Settings > Keys](https://accounts.lambdatest.com/security) |
 | `LT_ACCESS_KEY` | Same page |
 
-### 3. Authenticate Kane CLI
-
-```bash
-kane-cli login --username $LT_USERNAME --access-key $LT_ACCESS_KEY
-```
-
-### 4. Add GitHub secrets
+### 3. Add GitHub secrets
 
 In your fork: **Settings > Secrets and variables > Actions > New repository secret**
 
@@ -225,10 +219,7 @@ Go to **Actions > Pure CI Pipeline > Run workflow**. Set `full_run` to `true` to
 ### Full pipeline
 
 ```bash
-# Authenticate Kane CLI once
-kane-cli login --username $LT_USERNAME --access-key $LT_ACCESS_KEY
-
-# Run each stage
+# Run each stage — credentials are passed inline, no kane-cli login needed
 python ci/analyze_requirements.py
 python ci/manage_scenarios.py
 python ci/generate_tests_from_scenarios.py
@@ -283,14 +274,18 @@ Session: https://automation.lambdatest.com/test?testID=...
 ## Kane CLI — verify any requirement manually (Stage 1)
 
 ```bash
-# Verify a requirement directly
+# Verify a requirement directly — pass credentials inline, never use kane-cli login in scripts
 kane-cli run \
   "Navigate to the product section and verify a list of available products is displayed" \
   --url https://ecommerce-playground.lambdatest.io/ \
-  --agent --headless --timeout 120
+  --username "$LT_USERNAME" \
+  --access-key "$LT_ACCESS_KEY" \
+  --agent --headless --timeout 120 --max-steps 15
 
+# Exit codes: 0=passed, 1=failed, 2=error, 3=timeout
 # Parse result
-kane-cli run "..." --agent --headless 2>/dev/null | tail -1 | jq '{status, one_liner, duration}'
+kane-cli run "..." --username "$LT_USERNAME" --access-key "$LT_ACCESS_KEY" \
+  --agent --headless 2>/dev/null | tail -1 | jq '{status, one_liner, duration}'
 
 # Run all Kane objectives in parallel
 RESULTS_DIR=$(mktemp -d)

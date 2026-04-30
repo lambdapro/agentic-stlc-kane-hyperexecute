@@ -55,58 +55,81 @@ def make_title(description):
     return " ".join(words[:10]).strip().capitalize()
 
 
+EXIT_STATUS = {0: "passed", 1: "failed", 2: "error", 3: "timeout"}
+
+
 def run_kane(description):
     username = os.environ.get("LT_USERNAME", "")
     access_key = os.environ.get("LT_ACCESS_KEY", "")
     if not username or not access_key:
         return {
             "status": "skipped",
-            "summary": "Skipped Kane run because LT credentials were not available.",
+            "summary": "Skipped Kane run: LT credentials not available.",
             "final_state": {},
             "duration": None,
-            "link": ""
+            "link": "",
         }
 
+    # Credentials are passed inline on every run command.
+    # kane-cli login must NOT be used in CI; it opens an OAuth browser flow.
+    # Browser runs on LambdaTest's infrastructure via the Playwright WSS endpoint
+    # so no local Chrome installation is needed on the CI runner.
+    ws_endpoint = f"wss://{username}:{access_key}@cdp.lambdatest.com/playwright"
     command = [
-        "kane-cli",
-        "run",
-        description,
-        "--url",
-        TARGET_URL,
+        "kane-cli", "run", description,
+        "--url", TARGET_URL,
+        "--username", username,
+        "--access-key", access_key,
+        "--ws-endpoint", ws_endpoint,
         "--agent",
         "--headless",
-        "--timeout",
-        "120",
+        "--timeout", "120",
+        "--max-steps", "15",
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-    if not lines:
-        stderr = completed.stderr.strip() or "Kane CLI did not emit a parseable result."
-        return {
-            "status": "failed",
-            "summary": stderr,
-            "final_state": {},
-            "duration": None,
-            "link": ""
-        }
 
-    try:
-        payload = json.loads(lines[-1])
-    except json.JSONDecodeError:
+    # Map standard Kane CLI exit codes (0 pass, 1 fail, 2 error, 3 timeout)
+    exit_status = EXIT_STATUS.get(completed.returncode, "error")
+
+    # Parse the full NDJSON stream: collect step_end summaries and the run_end event
+    run_end = None
+    step_summaries = []
+    for raw in completed.stdout.splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "step_end" and event.get("summary"):
+            step_summaries.append(event["summary"])
+        elif event.get("type") == "run_end":
+            run_end = event
+
+    if not run_end:
+        stderr = completed.stderr.strip() or "Kane CLI did not emit a run_end event."
         return {
-            "status": "failed",
-            "summary": lines[-1],
+            "status": exit_status,
+            "summary": stderr,
+            "one_liner": stderr,
+            "steps": [],
             "final_state": {},
             "duration": None,
-            "link": ""
+            "test_url": "",
         }
 
     return {
-        "status": payload.get("status", "unknown"),
-        "summary": payload.get("one_liner", ""),
-        "final_state": payload.get("final_state", {}),
-        "duration": payload.get("duration"),
-        "link": payload.get("link", ""),
+        "status": run_end.get("status", exit_status),
+        # summary is the full narrative; one_liner is the short title
+        "summary": run_end.get("summary", ""),
+        "one_liner": run_end.get("one_liner", ""),
+        # step_end summaries become the scenario steps in manage_scenarios.py
+        "steps": step_summaries,
+        "final_state": run_end.get("final_state", {}),
+        "duration": run_end.get("duration"),
+        # test_url links directly to the TestMu AI dashboard session
+        "test_url": run_end.get("test_url", ""),
     }
 
 
@@ -130,25 +153,34 @@ def main():
         results = [{
             "status": "pending",
             "summary": "Kane run not attempted.",
+            "one_liner": "",
+            "steps": [],
             "final_state": {},
             "duration": None,
-            "link": ""
+            "test_url": "",
         } for _ in criteria]
     else:
         with ThreadPoolExecutor(max_workers=5) as executor:
             results = list(executor.map(run_kane, criteria))
 
     for index, (description, kane) in enumerate(zip(criteria, results), start=1):
+        test_url = kane.get("test_url", "")
         item = {
             "id": f"AC-{index:03d}",
             "title": make_title(description),
             "description": description,
             "url": TARGET_URL,
             "kane_status": kane["status"],
+            # one_liner: short scenario title derived from what Kane AI observed
+            "kane_one_liner": kane.get("one_liner", ""),
+            # summary: full narrative; used as expected_result in scenarios
             "kane_summary": kane["summary"],
+            # steps: step_end summaries; used as scenario steps in manage_scenarios.py
+            "kane_steps": kane.get("steps", []),
             "kane_final_state": kane["final_state"],
             "kane_duration": kane["duration"],
-            "kane_links": [kane["link"]] if kane["link"] else [],
+            # test_url links to the TestMu AI dashboard session for this criterion
+            "kane_links": [test_url] if test_url else [],
             "last_analyzed": today,
         }
         analyzed.append(item)
@@ -157,10 +189,12 @@ def main():
                 "requirement_id": item["id"],
                 "title": item["title"],
                 "status": item["kane_status"],
+                "one_liner": item["kane_one_liner"],
                 "summary": item["kane_summary"],
+                "steps": item["kane_steps"],
                 "final_state": item["kane_final_state"],
                 "duration": item["kane_duration"],
-                "link": kane["link"],
+                "link": test_url,
                 "url": item["url"],
             }
         )

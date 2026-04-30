@@ -22,88 +22,65 @@ def load_json(path, default):
 
 
 def title_and_steps(requirement):
-    description = requirement["description"].lower()
-    if "view a list of available products" in description or "product section" in description:
-        return (
-            "Navigate to product section and view available products",
-            [
-                "Navigate to https://ecommerce-playground.lambdatest.io/",
-                "Locate and click the Shop navigation link",
-                "Verify the products listing page loads",
-                "Verify multiple product tiles are visible on the page",
-            ],
-            "A list of available products is displayed with product tiles and filter options visible",
-        )
-    if "use filters" in description or "refine results" in description:
-        return (
-            "Filter products by category",
-            [
-                "Navigate to https://ecommerce-playground.lambdatest.io/",
-                "Go to a category page",
-                "Locate filter options such as Apple, Samsung, or Canon on the sidebar",
-                "Select a filter",
-                "Verify the product list updates to show filtered results",
-            ],
-            "Filtered results are displayed after applying a filter",
-        )
-    if "click on a product" in description or "view details" in description:
-        return (
-            "Click a product to view details",
-            [
-                "Navigate to https://ecommerce-playground.lambdatest.io/",
-                "Search for a product",
-                "Click on any product image or title",
-                "Verify the product detail page loads",
-                "Verify price and description information is visible",
-            ],
-            "Product detail page is displayed showing specific item information",
-        )
-    if "without logging in" in description or "highlights" in description:
-        return (
-            "View product highlights without logging in",
-            [
-                "Navigate to https://ecommerce-playground.lambdatest.io/ without logging in",
-                "Scroll through the homepage",
-                "Verify featured products or carousel is visible",
-                "Verify no login prompt blocks the content",
-            ],
-            "Product highlights are visible on the page without requiring login",
-        )
-    if "search for \"iphone\"" in description:
-        return (
-            "Search for iPhone products and view results",
-            [
-                "Navigate to https://ecommerce-playground.lambdatest.io/",
-                "Use the search bar to search for 'iphone'",
-                "Verify the search results page loads",
-                "Verify products containing 'iphone' are displayed"
-            ],
-            "A list of iPhone products is displayed in the search results"
-        )
-    if "add a product to the cart" in description:
-        return (
-            "Add product to cart and verify in cart",
-            [
-                "Navigate to https://ecommerce-playground.lambdatest.io/",
-                "Click on a product to view its details",
-                "Click the 'Add to Cart' button",
-                "Verify a success message is displayed or the cart icon updates",
-                "Navigate to the cart page",
-                "Verify the added product is present in the cart with correct details"
-            ],
-            "Product is successfully added to the cart and visible on the cart page"
-        )
-    return (
-        "Search results are relevant to selected filters or criteria",
-        [
+    """
+    Build scenario title, steps, and expected result.
+
+    Primary source: Kane AI's NDJSON run_end / step_end output stored on the
+    analyzed requirement (kane_one_liner, kane_steps, kane_summary).
+    Falls back to keyword-based defaults when Kane run was skipped or failed.
+    """
+    one_liner = requirement.get("kane_one_liner", "").strip()
+    kane_steps = [s for s in requirement.get("kane_steps", []) if s.strip()]
+    summary = requirement.get("kane_summary", "").strip()
+    description = requirement["description"]
+
+    title = one_liner if one_liner else _fallback_title(description)
+    steps = kane_steps if kane_steps else _fallback_steps(description)
+    expected = summary if summary else _fallback_expected(description)
+
+    return title, steps, expected
+
+
+def _fallback_title(description):
+    words = description.replace(".", "").replace(":", "").split()
+    return " ".join(words[:10]).capitalize()
+
+
+def _fallback_steps(description):
+    lowered = description.lower()
+    if "filter" in lowered or "refine" in lowered:
+        return [
             "Navigate to https://ecommerce-playground.lambdatest.io/",
-            "Search for an item",
-            "Apply a filter",
-            "Verify the displayed items are relevant to the selected filter",
-            "Check that item descriptions match the search term",
-        ],
-        "Results shown are relevant to the selected category or search term",
-    )
+            "Go to a category page",
+            "Select a brand filter from the sidebar",
+            "Verify the product list updates",
+        ]
+    if "click" in lowered and ("detail" in lowered or "price" in lowered):
+        return [
+            "Navigate to https://ecommerce-playground.lambdatest.io/",
+            "Click on any product tile",
+            "Verify the product detail page loads with name and price",
+        ]
+    if "search" in lowered:
+        return [
+            "Navigate to https://ecommerce-playground.lambdatest.io/",
+            "Enter a search term in the search bar",
+            "Verify relevant results are displayed",
+        ]
+    if "without logging in" in lowered or "highlight" in lowered:
+        return [
+            "Navigate to https://ecommerce-playground.lambdatest.io/ without logging in",
+            "Verify featured products or carousel is visible",
+        ]
+    return [
+        "Navigate to https://ecommerce-playground.lambdatest.io/",
+        "Perform the action described in the acceptance criterion",
+        "Verify the expected outcome is achieved",
+    ]
+
+
+def _fallback_expected(description):
+    return description.capitalize()
 
 
 def main():
