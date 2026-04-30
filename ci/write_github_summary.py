@@ -303,7 +303,7 @@ def main():
         emit("")
 
     # ── HyperExecute Execution Report ─────────────────────────────────────
-    emit("## HyperExecute Execution Report")
+    emit("## Regression on HyperExecute")
     emit("")
     if he_tasks_api:
         he_run_passed = sum(1 for t in he_tasks_api if t["status"] in ("passed",))

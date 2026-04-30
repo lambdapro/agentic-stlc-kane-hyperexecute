@@ -1,4 +1,4 @@
-name: Pure CI Pipeline
+name: Agentic SDLC Pipeline
 
 on:
   push:
@@ -30,8 +30,9 @@ env:
 
 jobs:
 
+  # ── Stage 1: Kane AI verifies each acceptance criterion against the live site ──
   analyze:
-    name: Stage 1 - Analyze Requirements
+    name: Stage 1 · Analyze Requirements (Kane AI)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +51,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run analyze stage
+      - name: Run requirement analysis
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
@@ -62,188 +63,11 @@ jobs:
           name: analyzed-requirements
           path: requirements/analyzed_requirements.json
 
-  manage:
-    name: Stage 2 - Manage Scenarios
+  # ── Stages 2-5: Gemma agent manages scenarios, generates tests, runs on
+  #    HyperExecute, fetches results via MCP, builds traceability + verdict ──
+  orchestrate:
+    name: Stages 2-5 · Gemma Agent Orchestrator
     needs: analyze
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: analyzed-requirements
-          path: requirements
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run manage stage
-        run: python ci/manage_scenarios.py
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: managed-scenarios
-          path: scenarios/scenarios.json
-
-  generate:
-    name: Stage 3 - Generate Tests
-    needs: manage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: managed-scenarios
-          path: scenarios
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run generate stage
-        run: python ci/generate_tests_from_scenarios.py
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: generated-assets
-          path: |
-            tests/
-            kane/objectives.json
-            scenarios/scenarios.json
-
-  select:
-    name: Stage 4a - Select Tests
-    needs: generate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: managed-scenarios
-          path: scenarios
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run select stage
-        env:
-          FULL_RUN: ${{ inputs.full_run || 'true' }}
-        run: python ci/select_tests.py
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: selection
-          path: |
-            reports/test_execution_manifest.json
-            reports/pytest_selection.txt
-
-  execute:
-    name: Stage 4b - Execute on HyperExecute
-    needs: select
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: generated-assets
-          path: .
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: selection
-          path: reports
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Download HyperExecute CLI
-        run: |
-          curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
-          chmod +x hyperexecute
-
-      - name: Run tests on HyperExecute
-        id: hyperexecute
-        continue-on-error: true
-        env:
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          ./hyperexecute \
-            --user "$LT_USERNAME" \
-            --key "$LT_ACCESS_KEY" \
-            --config hyperexecute.yaml 2>&1 | tee hyperexecute-cli.log
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: |
-            reports/
-            hyperexecute-cli.log
-
-      - name: Fail if HyperExecute tests failed
-        if: steps.hyperexecute.outcome == 'failure'
-        run: exit 1
-
-  analyze-failures:
-    name: Stage 4c - Analyze HyperExecute Failures
-    needs: execute
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: reports
-
-      - name: Move CLI log to expected location
-        run: mv reports/hyperexecute-cli.log hyperexecute-cli.log 2>/dev/null || true
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Analyze HyperExecute failures
-        env:
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-        run: python ci/analyze_hyperexecute_failures.py
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: failure-analysis
-          path: reports/hyperexecute_failure_analysis.md
-
-  report:
-    name: Stage 5 - Traceability and Release Recommendation
-    needs: analyze-failures
-    if: always()
     runs-on: ubuntu-latest
     env:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -255,70 +79,32 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - uses: actions/download-artifact@v4
-        if: always()
         with:
           name: analyzed-requirements
           path: requirements
 
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: managed-scenarios
-          path: scenarios
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: generated-assets
-          path: .
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: selection
-          path: reports
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: reports
-
-      - uses: actions/download-artifact@v4
-        if: always()
-        with:
-          name: failure-analysis
-          path: reports
-
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Fetch HyperExecute and Kane AI API details
-        if: always()
+      - name: Download HyperExecute CLI
+        run: |
+          curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+          chmod +x hyperexecute
+
+      - name: Run Gemma Agent (Stages 2-5)
         env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-        run: python ci/fetch_api_details.py
-
-      - name: Build traceability matrix
-        run: python ci/build_traceability.py
-
-      - name: Generate release recommendation
-        run: python ci/release_recommendation.py
-
-      - name: Build full pipeline summary
-        if: always()
-        env:
-          RUN_URL: ${{ env.RUN_URL }}
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-        run: python ci/write_github_summary.py
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          FULL_RUN: ${{ inputs.full_run || 'true' }}
+        run: python ci/agent.py
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-reports
+          name: agent-reports
           path: |
-            reports/traceability_matrix.md
-            reports/release_recommendation.md
-            reports/hyperexecute_failure_analysis.md
+            reports/
+            scenarios/scenarios.json
+            tests/selenium/test_products.py
