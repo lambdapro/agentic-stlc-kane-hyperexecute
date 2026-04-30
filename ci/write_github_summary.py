@@ -105,7 +105,7 @@ def main():
             if line.startswith("Approve") or line.startswith("Block") or line.startswith("Conditional"):
                 recommendation_line = line.strip()
 
-    emit("# 🤖 Agentic SDLC — Pipeline Run Report")
+    emit("# 🤖 Agentic STLC with Kane AI and HyperExecute")
     emit("")
     if run_url:
         emit(f"> **Run:** {run_url}")
@@ -225,9 +225,9 @@ def main():
     )
     emit("")
 
-    he_total = he_api.get("total_tasks") or len(selected)
-    he_passed_api = passed if executed > 0 else (he_api.get("passed_tasks") or 0)
-    he_failed_api = (he_total - he_passed_api) if he_total else (he_api.get("failed_tasks") or 0)
+    he_passed_api = sum(1 for t in he_tasks_api if t["status"] == "passed")
+    he_failed_api = len(he_tasks_api) - he_passed_api
+    he_total = he_api.get("total_tasks") or len(he_tasks_api) or len(selected)
     he_status = he_api.get("status", "unknown")
 
     emit("| Metric | Value |")
@@ -263,7 +263,7 @@ def main():
             req_id = row.get("requirement_id", "")
             one_liner = row.get("kane_one_liner", "") or "—"
             overall = row.get("overall", "unknown")
-            icon = "✅" if overall == "passed" else "❌"
+            icon = "✅" if overall == "passed" else ("⏭️" if overall == "not_run" else "❌")
             criterion = row["acceptance_criterion"][:55] + "…" if len(row["acceptance_criterion"]) > 55 else row["acceptance_criterion"]
             emit(
                 f"| `{req_id}` | {criterion} | `{row['scenario_id']}` | `{row['test_case_id']}` "

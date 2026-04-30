@@ -1,4 +1,4 @@
-name: Agentic SDLC Pipeline
+name: Agentic STLC Pipeline
 
 on:
   push:

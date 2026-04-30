@@ -1,6 +1,6 @@
-# Agentic SDLC Pipeline (Kane AI)
+# Agentic STLC Pipeline (Kane AI)
 
-This file defines the stages of the Agentic SDLC pipeline. The pipeline uses **Kane AI CLI** to verify requirements and discover site structure, while Python scripts orchestrate the synchronization between requirements, scenarios, and test code.
+This file defines the stages of the Agentic STLC pipeline. The pipeline uses **Kane AI CLI** to verify requirements and discover site structure, while Python scripts orchestrate the synchronization between requirements, scenarios, and test code.
 
 ---
 

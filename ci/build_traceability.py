@@ -152,10 +152,11 @@ def main():
             executed += 1
             if selenium_result == "passed":
                 passed += 1
+            if overall != "passed":
+                failing.append(scenario_id)
         else:
-            overall = "passed" if kane_result == "passed" else "failed"
-        if overall != "passed":
-            failing.append(scenario_id)
+            untested.append(requirement["id"])
+            overall = "not_run"
 
         rows.append(
             {

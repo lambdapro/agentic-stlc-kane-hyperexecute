@@ -12,7 +12,7 @@ def _build_name():
     """Consistent build label shared by Kane AI and Selenium sessions in the same run."""
     run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return f"Agentic SDLC #{run_number} | {today}" if run_number else f"Agentic SDLC | {today}"
+    return f"Agentic STLC #{run_number} | {today}" if run_number else f"Agentic STLC | {today}"
 
 
 def pytest_configure(config):
@@ -42,7 +42,7 @@ def driver(request):
         "browserVersion": "latest",
         "build": _build_name(),
         "name": session_name,
-        "project": "Agentic SDLC",
+        "project": "Agentic STLC",
         "video": True,
         "visual": True,
         "network": True,
