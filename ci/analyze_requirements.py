@@ -91,10 +91,12 @@ def run_kane(description):
     # Map standard Kane CLI exit codes (0 pass, 1 fail, 2 error, 3 timeout)
     exit_status = EXIT_STATUS.get(completed.returncode, "error")
 
-    # Parse the full NDJSON stream: collect step_end summaries and the run_end event
+    # Parse the full NDJSON stream from both stdout and stderr.
+    # Some Kane CLI versions write the agent stream to stderr.
     run_end = None
     step_summaries = []
-    for raw in completed.stdout.splitlines():
+    combined = completed.stdout + "\n" + completed.stderr
+    for raw in combined.splitlines():
         raw = raw.strip()
         if not raw:
             continue
@@ -102,17 +104,20 @@ def run_kane(description):
             event = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if event.get("type") == "step_end" and event.get("summary"):
+        event_type = event.get("type", "")
+        if event_type in ("step_end", "stepEnd") and event.get("summary"):
             step_summaries.append(event["summary"])
-        elif event.get("type") == "run_end":
+        elif event_type in ("run_end", "runEnd"):
             run_end = event
 
     if not run_end:
-        stderr = completed.stderr.strip() or "Kane CLI did not emit a run_end event."
+        # Surface the raw output so the CI log shows what Kane actually emitted
+        raw_output = (completed.stdout + completed.stderr).strip()
+        diagnostic = raw_output[:500] if raw_output else "Kane CLI produced no output."
         return {
             "status": exit_status,
-            "summary": stderr,
-            "one_liner": stderr,
+            "summary": diagnostic,
+            "one_liner": "",
             "steps": [],
             "final_state": {},
             "duration": None,

@@ -3,7 +3,7 @@ globalTimeout: 90
 testSuiteTimeout: 90
 testSuiteStep: 90
 
-runson: win
+runson: linux
 
 autosplit: true
 retryOnFailure: true
