@@ -288,18 +288,23 @@ def main():
     emit("")
 
     if trace_rows:
-        emit("| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | What Kane Saw | Functional + Regression Result |")
-        emit("|---|---|---|---|---|---|---|")
+        emit("| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | Kane Session | What Kane Saw | Selenium | Selenium Session | Overall |")
+        emit("|---|---|---|---|---|---|---|---|---|---|")
         for row in trace_rows:
             kane = row.get("kane_ai_result", "unknown")
             req_id = row.get("requirement_id", "")
             one_liner = row.get("kane_one_liner", "") or "—"
             overall = row.get("overall", "unknown")
+            selenium_result = row.get("selenium_result", "not_run")
             icon = "✅" if overall == "passed" else ("⏭️" if overall == "not_run" else "❌")
             criterion = row["acceptance_criterion"][:55] + "…" if len(row["acceptance_criterion"]) > 55 else row["acceptance_criterion"]
+            kane_link = row.get("kane_session_link", "")
+            kane_session_cell = f"[session]({kane_link})" if kane_link else "—"
+            sel_link = row.get("session_link", "")
+            sel_session_cell = f"[session]({sel_link})" if sel_link else "—"
             emit(
                 f"| `{req_id}` | {criterion} | `{row['scenario_id']}` | `{row['test_case_id']}` "
-                f"| {kane} | {one_liner} | {icon} {overall} |"
+                f"| {kane} | {kane_session_cell} | {one_liner} | {selenium_result} | {sel_session_cell} | {icon} {overall} |"
             )
         emit("")
 
@@ -321,6 +326,23 @@ def main():
                 emit("")
         emit("</details>")
         emit("")
+
+        result_analysis = trace_json.get("result_analysis", {})
+        if result_analysis:
+            emit("### Result Analysis")
+            emit("")
+            emit(f"- **Overall health:** {result_analysis.get('overall_health', 'unknown')}")
+            emit(f"- **Risk level:** {result_analysis.get('risk_level', 'unknown')}")
+            emit(f"- **Kane AI pass rate:** {result_analysis.get('kane_pass_rate', 0)}%")
+            emit(f"- **Selenium pass rate:** {result_analysis.get('selenium_pass_rate', 0)}%")
+            emit("")
+            for finding in result_analysis.get("key_findings", []):
+                emit(f"- {finding}")
+            emit("")
+            recommendation_hint = result_analysis.get("recommendation_hint", "")
+            if recommendation_hint:
+                emit(f"> {recommendation_hint}")
+                emit("")
 
     if failing_scenarios:
         emit("**Failing scenarios:**")

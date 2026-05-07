@@ -90,6 +90,72 @@ def load_junit_results(path):
     return results
 
 
+def compute_result_analysis(rows, summary):
+    total = len(rows)
+    kane_passed = sum(1 for r in rows if r.get("kane_ai_result") == "passed")
+    kane_ran = sum(1 for r in rows if r.get("kane_ai_result") in ("passed", "failed"))
+    kane_pass_rate = round((kane_passed / kane_ran) * 100, 1) if kane_ran else 0.0
+    selenium_pass_rate = summary.get("pass_rate", 0.0)
+
+    failed_requirements = sorted({
+        r["requirement_id"]
+        for r in rows
+        if r.get("kane_ai_result") == "failed" or r.get("overall") not in ("passed", "not_run")
+    })
+
+    key_findings = []
+    for r in rows:
+        req_id = r["requirement_id"]
+        kane_fail = r.get("kane_ai_result") == "failed"
+        sel_fail = r.get("overall") == "failed"
+        if kane_fail and sel_fail:
+            key_findings.append(f"{req_id} failed both Kane AI verification and Selenium regression.")
+        elif kane_fail:
+            key_findings.append(
+                f"{req_id} failed Kane AI verification but Selenium result is {r.get('overall', 'unknown')}."
+            )
+        elif sel_fail:
+            key_findings.append(f"{req_id} passed Kane AI verification but failed Selenium regression.")
+    if not key_findings:
+        key_findings.append("All tested requirements passed both Kane AI verification and Selenium regression.")
+
+    has_failures = bool(failed_requirements)
+    if selenium_pass_rate >= 90 and not has_failures:
+        risk_level = "low"
+    elif selenium_pass_rate >= 75:
+        risk_level = "medium"
+    else:
+        risk_level = "high"
+
+    overall_health = {"low": "healthy", "medium": "at_risk", "high": "critical"}[risk_level]
+
+    untested = summary.get("untested_requirements", [])
+    if overall_health == "healthy":
+        recommendation_hint = (
+            "All requirements passed verification and regression; release can proceed with confidence."
+        )
+    elif untested:
+        recommendation_hint = (
+            f"Release is blocked by {len(failed_requirements)} failing requirement(s) and "
+            f"{len(untested)} untested requirement(s); resolve before shipping."
+        )
+    else:
+        recommendation_hint = (
+            f"Release carries medium risk due to {len(failed_requirements)} failing requirement(s); "
+            "review findings before conditional approval."
+        )
+
+    return {
+        "overall_health": overall_health,
+        "kane_pass_rate": kane_pass_rate,
+        "selenium_pass_rate": selenium_pass_rate,
+        "risk_level": risk_level,
+        "key_findings": key_findings,
+        "failed_requirements": failed_requirements,
+        "recommendation_hint": recommendation_hint,
+    }
+
+
 def main():
     args = parse_args()
     requirements = load_json(args.requirements, [])
@@ -203,19 +269,27 @@ def main():
         f"- Requirements covered: {summary['requirements_covered']}/{summary['requirements_total']}",
         f"- Selenium pass rate: {summary['pass_rate']}% ({summary['passed']} passed, {summary['executed'] - summary['passed']} failed or skipped)",
         "",
-        "| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | What Kane Saw | Overall |",
-        "|---|---|---|---|---|---|---|",
+        "| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | Kane Session | What Kane Saw | Selenium | Selenium Session | Overall |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     for row in rows:
         one_liner = row.get("kane_one_liner", "") or "-"
+        kane_link = row.get("kane_session_link", "")
+        kane_session_cell = f"[session]({kane_link})" if kane_link else "-"
+        sel_link = row.get("session_link", "")
+        sel_session_cell = f"[session]({sel_link})" if sel_link else "-"
+        selenium_result = row.get("selenium_result", "not_run")
         lines.append(
             f"| {row['requirement_id']} "
             f"| {row['acceptance_criterion']} "
             f"| {row['scenario_id']} "
             f"| {row['test_case_id']} "
             f"| {row['kane_ai_result']} "
+            f"| {kane_session_cell} "
             f"| {one_liner} "
+            f"| {selenium_result} "
+            f"| {sel_session_cell} "
             f"| {row['overall']} |"
         )
 
@@ -257,12 +331,33 @@ def main():
         lines.extend(["", "## Failing Scenarios", ""])
         lines.extend([f"- {item}" for item in summary["failing_scenarios"]])
 
+    result_analysis = compute_result_analysis(rows, summary)
+
+    lines.extend(["", "## Result Analysis", ""])
+    lines.extend([
+        f"- **Overall health:** {result_analysis['overall_health']}",
+        f"- **Risk level:** {result_analysis['risk_level']}",
+        f"- **Kane AI pass rate:** {result_analysis['kane_pass_rate']}%",
+        f"- **Selenium pass rate:** {result_analysis['selenium_pass_rate']}%",
+        "",
+    ])
+    if result_analysis["failed_requirements"]:
+        lines.append("**Failed requirements:**")
+        lines.extend([f"- {r}" for r in result_analysis["failed_requirements"]])
+        lines.append("")
+    lines.append("**Key findings:**")
+    lines.extend([f"- {f}" for f in result_analysis["key_findings"]])
+    lines.extend(["", f"**Recommendation hint:** {result_analysis['recommendation_hint']}", ""])
+
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     json_path = Path(args.json_out)
-    json_path.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps({"summary": summary, "rows": rows, "result_analysis": result_analysis}, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     print(f"traceability_rows={len(rows)} pass_rate={pass_rate}")
 
