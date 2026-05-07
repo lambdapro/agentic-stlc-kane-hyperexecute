@@ -1,11 +1,24 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
+import sys
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _kane_exe():
+    """Return the kane-cli executable, resolving .cmd wrapper on Windows."""
+    exe = shutil.which("kane-cli")
+    if exe is None and sys.platform == "win32":
+        exe = shutil.which("kane-cli.cmd")
+    return exe or "kane-cli"
+
+
+KANE_EXE = _kane_exe()
 
 
 TARGET_URL = "https://ecommerce-playground.lambdatest.io/"
@@ -128,7 +141,7 @@ def run_kane(index, description):
     # kaneai-playground.lambdatest.io when the description alone is provided.
     task = f"On {TARGET_URL} — {description}"
     command = [
-        "kane-cli", "run", task,
+        KANE_EXE, "run", task,
         "--username", username,
         "--access-key", access_key,
         "--ws-endpoint", ws_endpoint,
@@ -137,7 +150,7 @@ def run_kane(index, description):
         "--timeout", "120",
         "--max-steps", "15",
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
 
     # Map standard Kane CLI exit codes (0 pass, 1 fail, 2 error, 3 timeout)
     exit_status = EXIT_STATUS.get(completed.returncode, "error")
