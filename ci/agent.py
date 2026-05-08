@@ -17,6 +17,7 @@ from mcp.client.sse import sse_client
 
 # ── Runtime config ─────────────────────────────────────────────────────────
 MCP_URL           = "https://mcp.lambdatest.com/mcp"
+LT_API_BASE       = "https://api.lambdatest.com/automation/api/v1"
 LT_USERNAME       = os.environ.get("LT_USERNAME", "")
 LT_ACCESS_KEY     = os.environ.get("LT_ACCESS_KEY", "")
 FULL_RUN          = os.environ.get("FULL_RUN", "true").lower() == "true"
@@ -262,61 +263,126 @@ def _parse_mcp_text(text: str) -> object:
     return json.loads(candidate)
 
 
-async def _fetch_he_sessions(job_id: str) -> list:
-    """
-    Fetch per-test session results from the HyperExecute sessions API using job_id.
-    Uses cursor-based pagination to collect all sessions.
-    Returns list of sessions in he_tasks format.
-    """
-    if not job_id:
-        return []
+def _parse_session(s: dict, source: str) -> dict:
+    """Normalise a session record from either the HE API or the Automation API."""
+    raw_name = (
+        s.get("scenario_name") or s.get("name") or s.get("session_name", "")
+    )
+    # conftest names sessions "SC-001 | TC-001 | test_sc_001_..." — extract fn name
+    parts   = [p.strip() for p in raw_name.split("|")]
+    fn_name = parts[-1] if len(parts) > 1 else raw_name
+    test_id = s.get("testID") or s.get("test_id") or s.get("session_id", "")
+    task_id = s.get("taskID") or s.get("task_id", "")
+    status_raw = s.get("status") or s.get("status_ind", "unknown")
+    status = "passed" if status_raw in ("passed", "pass", "completed") else (
+        "failed" if status_raw in ("failed", "fail", "error") else status_raw
+    )
+    link = (
+        f"https://automation.lambdatest.com/test?testID={test_id}"
+        if test_id else ""
+    )
+    print(f"  [{source}] {fn_name!r} → {status}  testID={test_id}")
+    return {"name": fn_name, "task_id": task_id, "status": status, "session_link": link}
+
+
+async def _fetch_he_sessions_api(client: httpx.AsyncClient, job_id: str) -> list:
+    """Try HyperExecute /v2.0/job/{id}/sessions endpoint."""
     tasks = []
     cursor = None
     page = 0
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            while True:
-                params: dict = {"limit": 20}
-                if cursor:
-                    params["cursor"] = cursor
-                resp = await client.get(
-                    f"https://api.hyperexecute.cloud/v2.0/job/{job_id}/sessions",
-                    params=params,
-                    auth=(LT_USERNAME, LT_ACCESS_KEY),
-                )
-                if resp.status_code != 200:
-                    print(f"[he_sessions] API {resp.status_code} (page {page}) — {resp.text[:200]}")
-                    break
-                data = resp.json()
-                page_sessions = data.get("data", [])
-                print(f"[he_sessions] page {page}: {len(page_sessions)} session(s)")
-                for s in page_sessions:
-                    raw_name  = s.get("scenario_name") or s.get("name", "")
-                    # Session name is "SC-001 | TC-001 | test_sc_001_..." — extract fn name
-                    parts     = [p.strip() for p in raw_name.split("|")]
-                    fn_name   = parts[-1] if len(parts) > 1 else raw_name
-                    test_id   = s.get("testID", "")
-                    task_id   = s.get("taskID", "")
-                    status    = s.get("status", "unknown")
-                    tasks.append({
-                        "name":         fn_name,
-                        "task_id":      task_id,
-                        "status":       status,
-                        "session_link": (
-                            f"https://automation.lambdatest.com/test?testID={test_id}"
-                            if test_id else ""
-                        ),
-                    })
-                metadata = data.get("metadata", {})
-                if not metadata.get("hasmore"):
-                    break
-                cursor = metadata.get("cursor")
-                if not cursor:
-                    break
-                page += 1
-    except Exception as exc:
-        print(f"[he_sessions] error: {exc}")
-    print(f"[he_sessions] total {len(tasks)} session(s) for job {job_id}")
+    while True:
+        params: dict = {"limit": 20}
+        if cursor:
+            params["cursor"] = cursor
+        resp = await client.get(
+            f"https://api.hyperexecute.cloud/v2.0/job/{job_id}/sessions",
+            params=params,
+            auth=(LT_USERNAME, LT_ACCESS_KEY),
+        )
+        if resp.status_code != 200:
+            print(f"[he_sessions_api] {resp.status_code} — {resp.text[:200]}")
+            return []
+        data = resp.json()
+        page_sessions = data.get("data", [])
+        print(f"[he_sessions_api] page {page}: {len(page_sessions)} session(s)")
+        tasks.extend(_parse_session(s, "he_api") for s in page_sessions)
+        metadata = data.get("metadata", {})
+        if not metadata.get("hasmore"):
+            break
+        cursor = metadata.get("cursor")
+        if not cursor:
+            break
+        page += 1
+    return tasks
+
+
+async def _fetch_automation_sessions_by_build(client: httpx.AsyncClient, build_name: str) -> list:
+    """
+    Fall back to LambdaTest Automation API: find the build by name and return its sessions.
+    conftest.py sets build=BUILD_NAME, so the build should be searchable by that exact name.
+    """
+    # Search for the build; also try a broad "Agentic STLC" search if exact match fails
+    build_id = None
+    for search in (build_name, "Agentic STLC"):
+        resp = await client.get(
+            f"{LT_API_BASE}/builds",
+            params={"s": search, "limit": 5, "sort": "desc"},
+            auth=(LT_USERNAME, LT_ACCESS_KEY),
+        )
+        if resp.status_code != 200:
+            print(f"[automation] builds search {resp.status_code}")
+            continue
+        builds = resp.json().get("data", [])
+        print(f"[automation] {len(builds)} build(s) for search={search!r}")
+        # Pick first build whose name contains the expected run number/date
+        for b in builds:
+            name = b.get("name", "")
+            if build_name in name or search == "Agentic STLC":
+                build_id = b.get("build_id")
+                print(f"[automation] matched build_id={build_id!r} name={name!r}")
+                break
+        if build_id:
+            break
+
+    if not build_id:
+        print("[automation] no matching build found")
+        return []
+
+    resp = await client.get(
+        f"{LT_API_BASE}/sessions",
+        params={"build_id": build_id, "limit": 50},
+        auth=(LT_USERNAME, LT_ACCESS_KEY),
+    )
+    if resp.status_code != 200:
+        print(f"[automation] sessions {resp.status_code}")
+        return []
+    sessions = resp.json().get("data", [])
+    print(f"[automation] {len(sessions)} session(s) for build_id={build_id}")
+    return [_parse_session(s, "automation") for s in sessions]
+
+
+async def _fetch_he_sessions(job_id: str) -> list:
+    """
+    Fetch per-test session results.
+    Strategy 1: HyperExecute /v2.0/job/{id}/sessions  (direct, by job_id)
+    Strategy 2: LambdaTest Automation API /builds + /sessions (by build name)
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        tasks = []
+        if job_id:
+            try:
+                tasks = await _fetch_he_sessions_api(client, job_id)
+            except Exception as exc:
+                print(f"[he_sessions_api] error: {exc}")
+
+        if not tasks:
+            print(f"[he_sessions] HE API returned 0 — trying Automation API (build={BUILD_NAME!r})")
+            try:
+                tasks = await _fetch_automation_sessions_by_build(client, BUILD_NAME)
+            except Exception as exc:
+                print(f"[automation] error: {exc}")
+
+    print(f"[he_sessions] final: {len(tasks)} session(s)")
     return tasks
 
 
