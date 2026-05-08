@@ -17,7 +17,6 @@ from mcp.client.sse import sse_client
 
 # ── Runtime config ─────────────────────────────────────────────────────────
 MCP_URL           = "https://mcp.lambdatest.com/mcp"
-LT_API_BASE       = "https://api.lambdatest.com/automation/api/v1"
 LT_USERNAME       = os.environ.get("LT_USERNAME", "")
 LT_ACCESS_KEY     = os.environ.get("LT_ACCESS_KEY", "")
 FULL_RUN          = os.environ.get("FULL_RUN", "true").lower() == "true"
@@ -28,8 +27,6 @@ BUILD_NAME        = (
     f"Agentic STLC #{RUN_NUMBER} | {TODAY}" if RUN_NUMBER
     else f"Agentic STLC | {TODAY}"
 )
-# HyperExecute appends -HYP to the build name when creating automation sessions
-AUTOMATION_BUILD_NAME = BUILD_NAME + "-HYP"
 
 JOB_ID_RE = re.compile(r"jobId=([\w-]+)")
 
@@ -265,65 +262,59 @@ def _parse_mcp_text(text: str) -> object:
     return json.loads(candidate)
 
 
-async def _fetch_automation_sessions(build_name: str) -> list:
+async def _fetch_he_sessions(job_id: str) -> list:
     """
-    Fetch per-test session results from LambdaTest Automation API.
-    HyperExecute appends -HYP to the build name, so build_name should already include it.
+    Fetch per-test session results from the HyperExecute sessions API using job_id.
+    Uses cursor-based pagination to collect all sessions.
     Returns list of sessions in he_tasks format.
     """
+    if not job_id:
+        return []
+    tasks = []
+    cursor = None
+    page = 0
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            # Find the automation build by name
-            resp = await client.get(
-                f"{LT_API_BASE}/builds",
-                params={"s": build_name, "limit": 5},
-                auth=(LT_USERNAME, LT_ACCESS_KEY),
-            )
-            if resp.status_code != 200:
-                print(f"[automation] builds API {resp.status_code} — {resp.text[:200]}")
-                return []
-            builds = resp.json().get("data", [])
-            print(f"[automation] found {len(builds)} build(s) matching {build_name!r}")
-            if not builds:
-                return []
-
-            build_id = builds[0].get("build_id")
-            print(f"[automation] build_id={build_id}")
-
-            # Get all test sessions for this build
-            resp = await client.get(
-                f"{LT_API_BASE}/sessions",
-                params={"build_id": build_id, "limit": 50},
-                auth=(LT_USERNAME, LT_ACCESS_KEY),
-            )
-            if resp.status_code != 200:
-                print(f"[automation] sessions API {resp.status_code}")
-                return []
-            sessions = resp.json().get("data", [])
-            print(f"[automation] {len(sessions)} test session(s) fetched")
-
-            tasks = []
-            for s in sessions:
-                session_id  = s.get("session_id") or s.get("test_id", "")
-                # Session name: "SC-001 | TC-001 | test_sc_001_..." — extract fn name
-                raw_name    = s.get("name", "")
-                parts       = [p.strip() for p in raw_name.split("|")]
-                fn_name     = parts[-1] if parts else raw_name
-                status_raw  = s.get("status_ind") or s.get("status", "unknown")
-                status      = "passed" if status_raw in ("passed", "pass") else "failed"
-                tasks.append({
-                    "name":         fn_name,
-                    "task_id":      session_id,
-                    "status":       status,
-                    "session_link": (
-                        f"https://automation.lambdatest.com/test?testID={session_id}"
-                        if session_id else ""
-                    ),
-                })
-            return tasks
+            while True:
+                params: dict = {"limit": 20}
+                if cursor:
+                    params["cursor"] = cursor
+                resp = await client.get(
+                    f"https://api.hyperexecute.cloud/v2.0/job/{job_id}/sessions",
+                    params=params,
+                    auth=(LT_USERNAME, LT_ACCESS_KEY),
+                )
+                if resp.status_code != 200:
+                    print(f"[he_sessions] API {resp.status_code} (page {page}) — {resp.text[:200]}")
+                    break
+                data = resp.json()
+                page_sessions = data.get("data", [])
+                print(f"[he_sessions] page {page}: {len(page_sessions)} session(s)")
+                for s in page_sessions:
+                    scenario_name = s.get("scenario_name") or s.get("name", "")
+                    test_id   = s.get("testID", "")
+                    task_id   = s.get("taskID", "")
+                    status    = s.get("status", "unknown")
+                    tasks.append({
+                        "name":         scenario_name,
+                        "task_id":      task_id,
+                        "status":       status,
+                        "session_link": (
+                            f"https://automation.lambdatest.com/test?testID={test_id}"
+                            if test_id else ""
+                        ),
+                    })
+                metadata = data.get("metadata", {})
+                if not metadata.get("hasmore"):
+                    break
+                cursor = metadata.get("cursor")
+                if not cursor:
+                    break
+                page += 1
     except Exception as exc:
-        print(f"[automation] error: {exc}")
-        return []
+        print(f"[he_sessions] error: {exc}")
+    print(f"[he_sessions] total {len(tasks)} session(s) for job {job_id}")
+    return tasks
 
 
 async def fetch_and_save_mcp_results(job_id: str) -> None:
@@ -358,16 +349,15 @@ async def fetch_and_save_mcp_results(job_id: str) -> None:
                         break
                     await asyncio.sleep(30)
 
-                # Fetch per-test results from LambdaTest Automation API
-                # (HyperExecute creates automation sessions with build name = BUILD_NAME + "-HYP")
-                automation_tasks = await _fetch_automation_sessions(AUTOMATION_BUILD_NAME)
+                # Fetch per-test results from HyperExecute sessions API using job_id
+                he_tasks = await _fetch_he_sessions(job_id)
 
-                _write_api_details(job_inner, automation_tasks, job_id)
+                _write_api_details(job_inner, he_tasks, job_id)
 
     except Exception as exc:
-        print(f"[mcp] connection failed: {exc} — falling back to automation API only")
-        automation_tasks = await _fetch_automation_sessions(AUTOMATION_BUILD_NAME)
-        _write_api_details({}, automation_tasks, job_id)
+        print(f"[mcp] connection failed: {exc} — falling back to HE sessions API")
+        he_tasks = await _fetch_he_sessions(job_id)
+        _write_api_details({}, he_tasks, job_id)
 
 
 def _write_api_details(job_inner: dict, he_tasks: list, job_id: str) -> None:
