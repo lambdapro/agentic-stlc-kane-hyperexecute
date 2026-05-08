@@ -291,12 +291,15 @@ async def _fetch_he_sessions(job_id: str) -> list:
                 page_sessions = data.get("data", [])
                 print(f"[he_sessions] page {page}: {len(page_sessions)} session(s)")
                 for s in page_sessions:
-                    scenario_name = s.get("scenario_name") or s.get("name", "")
+                    raw_name  = s.get("scenario_name") or s.get("name", "")
+                    # Session name is "SC-001 | TC-001 | test_sc_001_..." — extract fn name
+                    parts     = [p.strip() for p in raw_name.split("|")]
+                    fn_name   = parts[-1] if len(parts) > 1 else raw_name
                     test_id   = s.get("testID", "")
                     task_id   = s.get("taskID", "")
                     status    = s.get("status", "unknown")
                     tasks.append({
-                        "name":         scenario_name,
+                        "name":         fn_name,
                         "task_id":      task_id,
                         "status":       status,
                         "session_link": (
