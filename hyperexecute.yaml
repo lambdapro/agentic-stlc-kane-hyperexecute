@@ -1,7 +1,7 @@
 version: 0.1
-globalTimeout: 90
-testSuiteTimeout: 90
-testSuiteStep: 90
+globalTimeout: 120
+testSuiteTimeout: 120
+testSuiteStep: 120
 
 runson: linux
 
@@ -14,13 +14,18 @@ env:
   LT_USERNAME: ${LT_USERNAME}
   LT_ACCESS_KEY: ${LT_ACCESS_KEY}
   GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
+  M365_USERNAME: ${M365_USERNAME}
+  M365_PASSWORD: ${M365_PASSWORD}
+  POWERAPPS_URL: ${POWERAPPS_URL}
 
 cacheKey: '{{ checksum "requirements.txt" }}'
 cacheDirectories:
   - .pip_cache
+  - ~/.cache/ms-playwright
 
 pre:
   - pip install --cache-dir .pip_cache -r requirements.txt
+  - playwright install chromium
 
 runtime:
   language: python
@@ -49,6 +54,6 @@ post:
   - echo "Tests complete"
 
 jobLabel:
-  - ecommerce-products
+  - powerapps-issue-reporting
   - agentic-stlc
-  - selenium
+  - playwright

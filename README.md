@@ -7,7 +7,9 @@
 
 An end-to-end **Agentic Software Testing Lifecycle (STLC)** where plain-English requirements drive every stage of QA — from requirement analysis to parallel cloud execution and a final release verdict.
 
-**Kane AI** creates and runs functional test cases, verifying each acceptance criterion against the live site in real browser sessions. **HyperExecute** then executes those same tests as a full regression suite at scale, fanning them out across parallel cloud VMs simultaneously.
+**Kane AI** creates and runs functional test cases, verifying each acceptance criterion against the live app in real browser sessions. **HyperExecute** then executes those same tests as a full Playwright regression suite at scale, fanning them out across parallel cloud VMs simultaneously.
+
+The pipeline targets **Microsoft Teams Power Apps templates** (IssueReporting, Milestones, Bulletins) from the [teams-powerapps-app-templates](https://github.com/microsoft/teams-powerapps-app-templates) repo. Tests authenticate via Microsoft 365 and run against your deployed Power Apps environment.
 
 ---
 
@@ -36,10 +38,10 @@ The CI job downloads the HyperExecute CLI and submits the generated Selenium tes
 
 | Tool | Role in the pipeline |
 |---|---|
-| **Kane AI** (`@testmuai/kane-cli`) | Functional testing — verifies each acceptance criterion against the live site, creates functional test cases with real browser sessions, records pass/fail with session links |
-| **HyperExecute CLI** | Regression at scale — fans out the generated Selenium tests across parallel cloud VMs so all scenarios run simultaneously, not sequentially |
-| **Selenium WebDriver** | Regression executor — each generated test drives a real browser on LambdaTest Grid via `webdriver.Remote` |
-| **pytest** | Test orchestration framework — runs Selenium tests, captures pass/fail per node, uploads JUnit + HTML artifacts |
+| **Kane AI** (`@testmuai/kane-cli`) | Functional testing — verifies each acceptance criterion against the live Power App, creates functional test cases with real browser sessions, records pass/fail with session links |
+| **HyperExecute CLI** | Regression at scale — fans out the generated Playwright tests across parallel cloud VMs so all scenarios run simultaneously, not sequentially |
+| **Playwright (Python)** | Regression executor — each generated test drives a real browser on LambdaTest via CDP connection, supporting M365 login and Power Apps canvas UI |
+| **pytest + pytest-playwright** | Test orchestration framework — runs Playwright tests, captures pass/fail per node, uploads JUnit + HTML artifacts |
 | **Python CI Scripts** | Stage orchestrators — synchronize requirements, scenarios, generate test code, fetch results, and build reports |
 
 ---
@@ -151,8 +153,11 @@ The `.github/workflows/agentic-stlc.yml` workflow runs two jobs:
 | Node.js 18+ | Kane CLI (Stage 1) | [nodejs.org](https://nodejs.org) |
 | Python 3.11+ | CI scripts + pytest | [python.org](https://python.org) |
 | Kane CLI | Stage 1 requirement analysis | `npm install -g @testmuai/kane-cli` |
+| Playwright | Regression tests (Stage 4) | `pip install playwright && playwright install chromium` |
 | HyperExecute CLI | Cloud parallel execution | Downloaded automatically by CI |
-| LambdaTest account | Selenium Grid + HyperExecute | [lambdatest.com](https://www.lambdatest.com) |
+| LambdaTest account | CDP grid + HyperExecute | [lambdatest.com](https://www.lambdatest.com) |
+| Microsoft 365 account | Power Apps access | Your org's M365 tenant |
+| Deployed Power App | Test target | Deploy from [teams-powerapps-app-templates](https://github.com/microsoft/teams-powerapps-app-templates) |
 
 ---
 
@@ -173,12 +178,18 @@ pip install -r requirements.txt
 ```bash
 export LT_USERNAME=your_lambdatest_username
 export LT_ACCESS_KEY=your_lambdatest_access_key
+export M365_USERNAME=your_m365_email
+export M365_PASSWORD=your_m365_password
+export POWERAPPS_URL=https://apps.powerapps.com/play/your-environment-id/your-app-id
 ```
 
 | Credential | Where to get it |
 |---|---|
 | `LT_USERNAME` | [LambdaTest Dashboard > Settings > Keys](https://accounts.lambdatest.com/security) |
 | `LT_ACCESS_KEY` | Same page |
+| `M365_USERNAME` | Your Microsoft 365 account email |
+| `M365_PASSWORD` | Your Microsoft 365 account password |
+| `POWERAPPS_URL` | Power Apps player URL for your deployed IssueReporting app |
 
 ### 3. Add GitHub secrets
 
@@ -188,6 +199,9 @@ In your fork: **Settings > Secrets and variables > Actions > New repository secr
 |---|---|
 | `LT_USERNAME` | Your LambdaTest username |
 | `LT_ACCESS_KEY` | Your LambdaTest access key |
+| `M365_USERNAME` | Microsoft 365 account email |
+| `M365_PASSWORD` | Microsoft 365 account password |
+| `POWERAPPS_URL` | Power Apps player URL for the IssueReporting app |
 
 ---
 
@@ -426,11 +440,11 @@ pipelines:
 
 | Requirement | Scenario | Test Case | Kane AI (Functional) | HyperExecute (Regression) | Functional + Regression Result |
 |---|---|---|---|---|---|
-| Navigate to products section and view list | SC-001 | TC-001 | ✅ passed | ✅ passed | ✅ passed |
-| Use filters to refine product results | SC-002 | TC-002 | ✅ passed | ✅ passed | ✅ passed |
-| Click a product to view details | SC-003 | TC-003 | ✅ passed | ✅ passed | ✅ passed |
-| View highlights without login | SC-004 | TC-004 | ✅ passed | ✅ passed | ✅ passed |
-| Relevant results for selected filter | SC-005 | TC-005 | ✅ passed | ❌ failed | ❌ failed |
+| Navigate to IssueReporting app and see issues list | SC-001 | TC-001 | ✅ passed | ✅ passed | ✅ passed |
+| Create a new issue report | SC-002 | TC-002 | ✅ passed | ✅ passed | ✅ passed |
+| View issue details with status and description | SC-003 | TC-003 | ✅ passed | ✅ passed | ✅ passed |
+| Filter issues list by status | SC-004 | TC-004 | ✅ passed | ✅ passed | ✅ passed |
+| Navigate back from detail view to main list | SC-005 | TC-005 | ✅ passed | ❌ failed | ❌ failed |
 
 `reports/release_recommendation.md` gives the final verdict:
 
@@ -445,11 +459,11 @@ before release. All other acceptance criteria confirmed on the live site.
 
 | Scenario | Test function | Acceptance criterion |
 |---|---|---|
-| SC-001 | `test_sc_001_navigate_to_products_and_view_list` | Navigate and view product list |
-| SC-002 | `test_sc_002_filter_products_by_category` | Filter products by category |
-| SC-003 | `test_sc_003_click_product_view_details` | Click product to view details |
-| SC-004 | `test_sc_004_product_highlights_visible_without_login` | Highlights visible without login |
-| SC-005 | `test_sc_005_relevant_results_for_selected_filter` | Relevant results per filter |
+| SC-001 | `test_sc_001_navigate_to_app_and_see_issues_list` | Navigate to IssueReporting app and see issues list |
+| SC-002 | `test_sc_002_create_new_issue_report` | Create a new issue report with title and category |
+| SC-003 | `test_sc_003_view_issue_details` | View issue details including status and description |
+| SC-004 | `test_sc_004_filter_issues_by_status` | Filter issues by status to see active/resolved items |
+| SC-005 | `test_sc_005_navigate_back_from_detail_view` | Navigate back from detail view to main issues list |
 
 ---
 

@@ -1,12 +1,12 @@
-Title: Browse and search products on ecommerce playground
+Title: Issue Reporting Power App — Microsoft Teams Template
 
-As a shopper
-I want to explore products on ecommerce-playground.lambdatest.io
-So that I can find and buy what I need
+As a team member
+I want to use the IssueReporting Power App deployed in Microsoft Teams
+So that I can report, track, and resolve operational issues effectively
 
 Acceptance Criteria:
-User can navigate to the product catalog and see a list of products
-User can apply a brand filter from the sidebar to narrow product results
-User can click a product to open its detail page and see the name and price
-User can browse products and the homepage without logging in
-User can search for a product by name and see relevant results
+User can navigate to the IssueReporting app and see the main issues list with existing reports
+User can create a new issue report by providing a title, description, and category
+User can view issue details including status, priority, and full description
+User can filter the issues list by status to see only active or resolved items
+User can navigate back from an issue detail view to the main issues list
