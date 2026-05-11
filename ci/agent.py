@@ -272,21 +272,47 @@ def write_test_selection(scenarios: list) -> list:
 # ── Stage 5: Run HyperExecute ──────────────────────────────────────────────
 def run_hyperexecute() -> str:
     cli = "./hyperexecute"
+    cwd = Path(".").resolve()
+    print(f"[hyperexecute] cwd={cwd}  binary_exists={Path(cli).exists()}")
+
+    # List files in cwd to help diagnose binary-not-found issues
+    files = [f.name for f in cwd.iterdir() if f.is_file()]
+    print(f"[hyperexecute] files in cwd: {files}")
+
     if not Path(cli).exists():
         print("[hyperexecute] binary not found — skipping")
         return ""
 
+    if not LT_USERNAME or not LT_ACCESS_KEY:
+        print("[hyperexecute] LT credentials missing — skipping")
+        return ""
+
+    # Show selection size before submitting
+    sel_path = Path("reports/pytest_selection.txt")
+    if sel_path.exists():
+        lines = [l.strip() for l in sel_path.read_text().splitlines() if l.strip()]
+        print(f"[hyperexecute] test selection: {len(lines)} test(s)")
+        for line in lines:
+            print(f"  {line}")
+    else:
+        print("[hyperexecute] WARNING: reports/pytest_selection.txt not found")
+
     cmd = [cli, "--user", LT_USERNAME, "--key", LT_ACCESS_KEY, "--config", "hyperexecute.yaml"]
-    print("[hyperexecute] starting ...")
+    print(f"[hyperexecute] starting — cmd: {' '.join(cmd[:3])} ...")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     combined = result.stdout + result.stderr
 
     Path("reports").mkdir(exist_ok=True)
     Path("reports/hyperexecute-cli.log").write_text(combined, encoding="utf-8")
+    print(f"[hyperexecute] exit_code={result.returncode}  output_lines={len(combined.splitlines())}")
+    if combined.strip():
+        # Print first 30 lines of output for visibility
+        for line in combined.splitlines()[:30]:
+            print(f"  {line}")
 
     match = JOB_ID_RE.search(combined)
     job_id = match.group(1) if match else ""
-    print(f"[hyperexecute] done — job_id={job_id!r}  exit_code={result.returncode}")
+    print(f"[hyperexecute] job_id={job_id!r}")
     return job_id
 
 
@@ -558,9 +584,11 @@ def post_pipeline() -> None:
             capture_output=True, text=True, encoding="utf-8",
         )
         if result.stdout:
-            print(result.stdout)
+            print(result.stdout.strip())
         if result.returncode != 0:
-            print(f"[WARNING] {script} exited {result.returncode}: {result.stderr[:500]}")
+            print(f"[WARNING] {script} exited {result.returncode}")
+            if result.stderr:
+                print(result.stderr[:800])
         else:
             print(f"[post-pipeline] {script} ok")
 
