@@ -34,8 +34,7 @@ JOB_ID_RE = re.compile(r"jobId=([\w-]+)")
 # ── Deterministic test generation ──────────────────────────────────────────
 def _derive_fn_name(sc_id: str, title: str) -> str:
     """Derive a stable pytest function name from scenario ID + title."""
-    import re as _re
-    slug = _re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:50]
+    slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:50]
     return f"test_{sc_id.lower().replace('-', '_')}_{slug}"
 
 TEST_HEADER = '''\
