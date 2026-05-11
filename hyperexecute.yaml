@@ -1,7 +1,7 @@
 version: 0.1
-globalTimeout: 150
-testSuiteTimeout: 150
-testSuiteStep: 150
+globalTimeout: 180
+testSuiteTimeout: 180
+testSuiteStep: 180
 
 runson: linux
 
@@ -10,14 +10,15 @@ retryOnFailure: true
 maxRetries: 1
 concurrency: 5
 
+# BROWSERS drives pytest parametrize in conftest.py — no HyperExecute matrix needed.
+# Each test function runs once per browser listed here (28 total = 7 tests × 4 browsers).
+# Android connects to a LambdaTest real device via CDP; the HE VM stays Linux.
 env:
   LT_USERNAME: ${LT_USERNAME}
   LT_ACCESS_KEY: ${LT_ACCESS_KEY}
   GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
-  M365_USERNAME: ${M365_USERNAME}
-  M365_PASSWORD: ${M365_PASSWORD}
-  POWERAPPS_URL: ${POWERAPPS_URL}
-  BROWSER: chrome
+  TARGET_URL: "https://ecommerce-playground.lambdatest.io/"
+  BROWSERS: "chrome,firefox,safari,android"
 
 cacheKey: '{{ checksum "requirements.txt" }}'
 cacheDirectories:
@@ -26,7 +27,7 @@ cacheDirectories:
 
 pre:
   - pip install --cache-dir .pip_cache -r requirements.txt
-  - playwright install chromium
+  - playwright install chromium firefox webkit
 
 runtime:
   language: python
@@ -37,7 +38,9 @@ testDiscovery:
   mode: dynamic
   command: cat reports/pytest_selection.txt
 
-testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --html=reports/report.html --junitxml=reports/junit.xml
+# Per-browser JUnit files (junit-chrome.xml, junit-firefox.xml, …) are picked up
+# by normalize_artifacts.py during Stage 7 traceability building.
+testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --html=reports/report-${BROWSER}.html --junitxml=reports/junit-${BROWSER}.xml
 
 mergeArtifacts: true
 uploadArtefacts:
@@ -52,9 +55,10 @@ partialReports:
   frameworkName: extent
 
 post:
-  - echo "HyperExecute tests complete"
+  - echo "HyperExecute multi-browser tests complete"
 
 jobLabel:
-  - powerapps-issue-reporting
+  - ecommerce-playground
   - agentic-stlc
   - playwright
+  - multi-browser

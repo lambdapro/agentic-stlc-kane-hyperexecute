@@ -35,6 +35,14 @@ def load_json(path, default):
 
 def emit(text):
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    # Force UTF-8 on Windows consoles that default to cp1252
+    import sys
+    out = sys.stdout
+    try:
+        if hasattr(out, "reconfigure"):
+            out.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     print(text)
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:

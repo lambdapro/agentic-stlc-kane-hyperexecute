@@ -2,23 +2,36 @@
   {
     "scenario_id": "SC-001",
     "test_case_id": "TC-001",
-    "requirement_id": "AC-001",
-    "objective": "User can navigate to the product catalog and see a list of products",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "timeout": 120,
-    "max_steps": 15,
-    "last_run_status": "passed",
-    "last_run_date": "2026-04-30"
+    "objective": "searched for products on ecommerce-playground.lambdatest.io"
   },
   {
     "scenario_id": "SC-002",
     "test_case_id": "TC-002",
-    "requirement_id": "AC-002",
-    "objective": "User can apply a brand filter from the sidebar to narrow product results",
-    "url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/category&path=20",
-    "timeout": 120,
-    "max_steps": 15,
-    "last_run_status": "passed",
-    "last_run_date": "2026-04-30"
+    "objective": "attempted to open the cart and select a product option on ecommerce-playground.lambdatest.io"
+  },
+  {
+    "scenario_id": "SC-003",
+    "test_case_id": "TC-003",
+    "objective": "opened the Laptops product catalog on ecommerce-playground.lambdatest.io"
+  },
+  {
+    "scenario_id": "SC-004",
+    "test_case_id": "TC-004",
+    "objective": "attempted to filter Components by Apple on ecommerce-playground.lambdatest.io"
+  },
+  {
+    "scenario_id": "SC-005",
+    "test_case_id": "TC-005",
+    "objective": "opened a product detail page on ecommerce-playground.lambdatest.io"
+  },
+  {
+    "scenario_id": "SC-006",
+    "test_case_id": "TC-006",
+    "objective": "browsed the homepage and product listings on ecommerce-playground.lambdatest.io"
+  },
+  {
+    "scenario_id": "SC-007",
+    "test_case_id": "TC-007",
+    "objective": "searched for an iPhone on ecommerce-playground.lambdatest.io"
   }
 ]

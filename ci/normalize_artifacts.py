@@ -113,21 +113,41 @@ def _load_junit_results():
     return results
 
 
+def _sc_id_from_task_name(name: str) -> str:
+    """Extract SC-NNN from a HE task name like 'tests/.../test_sc_003_...'."""
+    import re
+    m = re.search(r"test_sc_(\d+)", name, re.IGNORECASE)
+    if m:
+        return f"SC-{int(m.group(1)):03d}"
+    return ""
+
+
 def _load_he_session_links():
     """
     Load HE API task data for session links.
-    Returns dict: function_name → {session_link, status}.
+    Returns dict: sc_id → list of {session_link, status, name}.
     """
     api_details = _load_json("reports/api_details.json", {})
-    result = {}
+    result: dict = {}
+    seen_links: set = set()
     for task in api_details.get("he_tasks", []):
         name = (task.get("name") or "").strip()
-        if name:
-            result[name] = {
-                "session_link": task.get("session_link", ""),
-                "status": task.get("status", ""),
-            }
-            _debug(f"HE API task: {name!r} → {task.get('status')} link={task.get('session_link','')[:60]}")
+        link = task.get("session_link", "")
+        if not name:
+            continue
+        sc_id = _sc_id_from_task_name(name)
+        if not sc_id:
+            _debug(f"HE API task: could not parse SC ID from {name!r}")
+            continue
+        if link in seen_links:
+            continue
+        seen_links.add(link)
+        result.setdefault(sc_id, []).append({
+            "session_link": link,
+            "status": task.get("status", ""),
+            "name": name,
+        })
+        _debug(f"HE API task: {sc_id} → {task.get('status')} link={link[:60]}")
     return result
 
 
@@ -163,14 +183,45 @@ def normalize():
         browsers_from_junit = {b for (jname, b) in junit_results if _fn_matches(jname, fn_name)}
         browsers = browsers_from_conftest | browsers_from_junit
 
+        # HE sessions for this scenario (list, keyed by sc_id now)
+        he_sessions_for_sc = he_sessions.get(sc_id, [])
+
         if not browsers:
-            # HE API has no browser discriminator — if we have HE data for this fn, assume default browser
-            if fn_name in he_sessions:
-                browsers = {"chrome"}
+            if he_sessions_for_sc:
+                # HE has data but no browser discriminator — emit one record per HE session
+                # Map sessions to browser names using BROWSERS env var order if available
+                _default_browsers = ["chrome", "firefox", "safari", "android"]
+                configured_browsers = [
+                    b.strip().lower()
+                    for b in os.environ.get("BROWSERS", "").split(",")
+                    if b.strip()
+                ] or _default_browsers
+                for idx, he_sess in enumerate(he_sessions_for_sc):
+                    browser = configured_browsers[idx] if idx < len(configured_browsers) else f"browser_{idx + 1}"
+                    he_status = he_sess.get("status", "")
+                    status = he_status if he_status in ("passed", "failed") else "data_unavailable"
+                    record = {
+                        "test_id": tc_id,
+                        "requirement_id": req_id,
+                        "scenario_id": sc_id,
+                        "function_name": fn_name,
+                        "browser": browser,
+                        "framework": "playwright",
+                        "status": status,
+                        "duration_ms": None,
+                        "start_time": None,
+                        "end_time": None,
+                        "retries": 0,
+                        "session_link": he_sess.get("session_link", ""),
+                        "error_message": None,
+                        "source": "he_api",
+                    }
+                    normalized.append(record)
+                    _debug(f"Normalized (HE only): {sc_id}/{browser} → {status}")
             else:
                 missing_data.append(f"{sc_id}: no execution data in any source")
                 normalized.append(_unavailable_record(sc_id, req_id, tc_id, fn_name, "chrome"))
-                continue
+            continue
 
         for browser in sorted(browsers):
             conftest = conftest_results.get((sc_id, browser), {})
@@ -182,8 +233,8 @@ def normalize():
                 None,
             )
 
-            # HE API: no browser discriminator — use for session link only
-            he = he_sessions.get(fn_name, {})
+            # HE API: pick first session for session link (no browser discriminator available)
+            he = he_sessions_for_sc[0] if he_sessions_for_sc else {}
 
             # Status: conftest > junit > he_api (he_api status is less granular)
             status = (

@@ -36,7 +36,7 @@ env:
 
 jobs:
 
-  # ── Stage 1: KaneAI functional verification against live Power App ────────────
+  # ── Stage 1: KaneAI functional verification against live ecommerce site ───────
   # No hard timeout — KaneAI wall-clock is bounded by slowest criterion (90s),
   # not the sum, thanks to parallel workers. npm/pip cached after first run.
   analyze:
@@ -109,7 +109,6 @@ jobs:
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-          POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: python ci/analyze_requirements.py
 
@@ -160,9 +159,7 @@ jobs:
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-          M365_USERNAME: ${{ secrets.M365_USERNAME }}
-          M365_PASSWORD: ${{ secrets.M365_PASSWORD }}
-          POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
+          TARGET_URL: "https://ecommerce-playground.lambdatest.io/"
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           FULL_RUN: ${{ inputs.full_run || 'true' }}
         run: python ci/agent.py

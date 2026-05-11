@@ -8,14 +8,30 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
-# LambdaTest browser name → (Playwright launcher attr, LT browserName capability)
-# LambdaTest Playwright CDP requires "pw-*" browser names, not Selenium names.
-# Using "Chrome" triggers a Selenium session → "Browser.getVersion: undefined" error.
+# LambdaTest browser map: browser key → (Playwright launcher attr, LT browserName capability)
+# LambdaTest now requires playwright.browser.connect() (Playwright wire protocol), NOT
+# connect_over_cdp() which produces "Browser.getVersion: undefined" errors.
+# With connect(), use standard LambdaTest browser names (Chrome, Firefox, etc.).
+# Android routes to a real LambdaTest Android device; the HE runner stays Linux.
 _BROWSER_MAP = {
-    "chrome":   ("chromium", "pw-chromium"),
-    "firefox":  ("firefox",  "pw-firefox"),
-    "edge":     ("chromium", "pw-chromium"),
-    "safari":   ("webkit",   "pw-webkit"),
+    "chrome":   ("chromium", "Chrome"),
+    "firefox":  ("firefox",  "Firefox"),
+    "edge":     ("chromium", "MicrosoftEdge"),
+    "safari":   ("webkit",   "Safari"),
+    "android":  ("chromium", "Chrome"),
+}
+
+# Platform overrides per browser key (defaults to "Windows 10")
+_PLATFORM_MAP = {
+    "safari":  "macOS Ventura",
+    "android": "Android",
+}
+
+# Extra LT:Options injected only for Android real-device execution
+_ANDROID_EXTRA = {
+    "deviceName": "Galaxy S22",
+    "osVersion":  "12",
+    "isRealMobile": True,
 }
 
 
@@ -66,31 +82,46 @@ def _m365_login(page, url: str) -> None:
     page.wait_for_load_state("networkidle", timeout=30000)
 
 
-@pytest.fixture(scope="function")
+# Read target browsers from env — comma-separated, e.g. "chrome,firefox,safari,android".
+# Falls back to single BROWSER env var (legacy), then to chrome.
+def _target_browsers() -> list[str]:
+    multi = os.environ.get("BROWSERS", "")
+    if multi:
+        return [b.strip().lower() for b in multi.split(",") if b.strip()]
+    single = os.environ.get("BROWSER", "chrome").strip().lower()
+    return [single]
+
+
+@pytest.fixture(params=_target_browsers(), scope="function")
 def page(request):
     lt_username = os.environ.get("LT_USERNAME", "")
     lt_access_key = os.environ.get("LT_ACCESS_KEY", "")
-    browser_key = os.environ.get("BROWSER", "chrome").lower()
-    playwright_launcher, lt_browser_name = _BROWSER_MAP.get(browser_key, ("chromium", "Chrome"))
+    browser_key: str = request.param
+    playwright_launcher, lt_browser_name = _BROWSER_MAP.get(browser_key, ("chromium", "pw-chromium"))
 
     build = _build_name()
     session_name = _session_name(request, browser_key)
 
+    platform = _PLATFORM_MAP.get(browser_key, "Windows 10")
+    lt_options: dict = {
+        "platform": platform,
+        "build": build,
+        "name": session_name,
+        "project": "Agentic STLC — Ecommerce Playground",
+        "user": lt_username,
+        "accessKey": lt_access_key,
+        "video": True,
+        "visual": True,
+        "network": True,
+        "console": True,
+    }
+    if browser_key == "android":
+        lt_options.update(_ANDROID_EXTRA)
+
     capabilities = {
         "browserName": lt_browser_name,
         "browserVersion": "latest",
-        "LT:Options": {
-            "platform": "Windows 10",
-            "build": build,
-            "name": session_name,
-            "project": "Agentic STLC — Power Apps",
-            "user": lt_username,
-            "accessKey": lt_access_key,
-            "video": True,
-            "visual": True,
-            "network": True,
-            "console": True,
-        },
+        "LT:Options": lt_options,
     }
     cdp_url = (
         f"wss://cdp.lambdatest.com/playwright"
@@ -102,7 +133,8 @@ def page(request):
 
     with sync_playwright() as p:
         launcher = getattr(p, playwright_launcher)
-        browser = launcher.connect_over_cdp(cdp_url)
+        # LambdaTest requires Playwright wire-protocol connect(), not connect_over_cdp().
+        browser = launcher.connect(cdp_url)
         context = browser.new_context()
         pw_page = context.new_page()
 
