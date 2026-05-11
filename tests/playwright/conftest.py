@@ -9,11 +9,13 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 # LambdaTest browser name → (Playwright launcher attr, LT browserName capability)
+# LambdaTest Playwright CDP requires "pw-*" browser names, not Selenium names.
+# Using "Chrome" triggers a Selenium session → "Browser.getVersion: undefined" error.
 _BROWSER_MAP = {
-    "chrome":   ("chromium", "Chrome"),
-    "firefox":  ("firefox",  "Firefox"),
-    "edge":     ("chromium", "MicrosoftEdge"),
-    "safari":   ("webkit",   "Safari"),
+    "chrome":   ("chromium", "pw-chromium"),
+    "firefox":  ("firefox",  "pw-firefox"),
+    "edge":     ("chromium", "pw-chromium"),
+    "safari":   ("webkit",   "pw-webkit"),
 }
 
 
@@ -36,13 +38,15 @@ def pytest_configure(config):
 
 
 def _m365_login(page, url: str) -> None:
-    """Handle Microsoft 365 login flow for Power Apps access."""
+    """Navigate to the app URL and handle Microsoft 365 login if credentials are set."""
+    page.goto(url)
+    page.wait_for_load_state("domcontentloaded", timeout=30000)
+
     username = os.environ.get("M365_USERNAME", "")
     password = os.environ.get("M365_PASSWORD", "")
     if not username or not password:
         return
 
-    page.goto(url)
     email_input = page.locator("input[type='email'], input[name='loginfmt']")
     if email_input.count() > 0:
         email_input.first.fill(username)
