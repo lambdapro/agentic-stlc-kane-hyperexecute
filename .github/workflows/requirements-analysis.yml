@@ -1,0 +1,67 @@
+name: Requirements Analysis (Standalone)
+
+# Lightweight standalone workflow — parse requirements only, no Kane calls.
+# Use this to validate requirements file format and preview what criteria will
+# be generated before triggering the full pipeline.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "requirements/*.txt"
+      - "requirements/*.md"
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  parse-requirements:
+    name: "Parse & Validate Requirements"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - name: Parse requirements and generate artifact map
+        run: |
+          python -c "
+          import sys, json
+          from pathlib import Path
+          sys.path.insert(0, 'ci')
+          from analyze_requirements import extract_acceptance_criteria
+
+          results = []
+          for req_file in sorted(Path('requirements').glob('*.txt')):
+              criteria = extract_acceptance_criteria(req_file.read_text())
+              for i, ac in enumerate(criteria, start=1):
+                  results.append({'file': req_file.name, 'index': i, 'criterion': ac})
+
+          print(json.dumps(results, indent=2))
+          print(f'\nTotal: {len(results)} acceptance criteria across {len(list(Path(\"requirements\").glob(\"*.txt\")))} file(s)')
+          " | tee reports/requirements_parse_preview.json
+
+      - name: Compute requirements hash
+        run: |
+          HASH=\$(sha256sum requirements/*.txt | sha256sum | cut -c1-16)
+          echo "Requirements hash: \$HASH"
+          echo "Use this as the Kane cache key when running the full pipeline."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: requirements-preview
+          path: reports/requirements_parse_preview.json
+          retention-days: 7

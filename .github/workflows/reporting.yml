@@ -1,0 +1,88 @@
+name: Reporting (Standalone)
+
+# Standalone reporting workflow — regenerate traceability matrix and
+# release verdict from existing artifacts without re-running tests.
+# Use this to:
+#   - Re-generate reports after threshold changes
+#   - Regenerate the GitHub summary from existing test results
+#   - Debug report generation in isolation
+
+on:
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  reporting:
+    name: "Traceability + Verdict + Pipeline Metrics"
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - name: Download analyzed requirements
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: analyzed-requirements
+          path: requirements
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-artifacts
+          path: .
+
+      - name: Download HyperExecute results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: hyperexecute-results
+          path: reports
+
+      - name: Build traceability matrix
+        run: python ci/build_traceability.py
+
+      - name: Release recommendation
+        run: python ci/release_recommendation.py
+
+      - name: Write GitHub Actions summary
+        env:
+          GITHUB_STEP_SUMMARY: ${{ env.GITHUB_STEP_SUMMARY }}
+        run: python ci/write_github_summary.py
+
+      - name: Generate pipeline metrics
+        run: python ci/pipeline_metrics.py
+
+      - name: Show verdict
+        run: |
+          echo "=== RELEASE VERDICT ==="
+          cat reports/release_recommendation.md || echo "(no verdict generated)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: standalone-reports
+          path: |
+            reports/traceability_matrix.md
+            reports/traceability_matrix.json
+            reports/release_recommendation.md
+            reports/pipeline_metrics.json
+          retention-days: 30

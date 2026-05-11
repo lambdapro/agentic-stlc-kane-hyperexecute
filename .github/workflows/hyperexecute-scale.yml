@@ -1,0 +1,88 @@
+name: HyperExecute Scale Run (Standalone)
+
+# Standalone HyperExecute workflow.
+# Runs Stages 4-5 independently — assumes analyzed_requirements artifact
+# exists from a previous run or can be provided via workflow_dispatch.
+# Use this to:
+#   - Re-run regression tests after code fixes without re-running Kane
+#   - Scale testing across different concurrency settings
+#   - Debug HyperExecute submission issues in isolation
+
+on:
+  workflow_dispatch:
+    inputs:
+      full_run:
+        description: "Run all active scenarios (true) or incremental only (false)"
+        required: false
+        default: "true"
+        type: boolean
+      concurrency:
+        description: "HyperExecute concurrency (number of parallel VMs)"
+        required: false
+        default: "5"
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  hyperexecute-execution:
+    name: "HyperExecute Regression (${{ inputs.concurrency || '5' }} VMs)"
+    runs-on: ubuntu-latest
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - name: Download analyzed requirements artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: analyzed-requirements
+          path: requirements
+
+      - name: Generate test selection
+        env:
+          FULL_RUN: ${{ inputs.full_run || 'true' }}
+        run: |
+          python ci/manage_scenarios.py
+          python ci/generate_tests_from_scenarios.py
+          python ci/select_tests.py
+          echo "Tests queued:"
+          cat reports/pytest_selection.txt
+
+      - name: Download HyperExecute CLI
+        run: |
+          curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+          chmod +x hyperexecute
+
+      - name: Submit to HyperExecute
+        env:
+          LT_USERNAME: ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+          M365_USERNAME: ${{ secrets.M365_USERNAME }}
+          M365_PASSWORD: ${{ secrets.M365_PASSWORD }}
+          POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: python ci/agent.py --stages hyperexecute
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hyperexecute-scale-results
+          path: reports/
+          retention-days: 30

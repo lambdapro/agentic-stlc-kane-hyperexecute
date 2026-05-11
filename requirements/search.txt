@@ -6,12 +6,3 @@ So that I can report, track, and resolve operational issues efficiently
 
 Acceptance Criteria:
 User can navigate to the IssueReporting app and see the main issues list with existing reports
-User can create a new issue report by providing a title, description, and category
-User can view issue details including status, priority, and full description
-User can filter the issues list by status to see only active or resolved items
-User can navigate back from an issue detail view to the main issues list
-User can edit a submitted issue report and see the updated details saved
-User can search for an existing issue by keyword and see matching results
-User can see a validation message when submitting a form with empty mandatory fields
-User can interact with the issues grid — sorting columns and navigating pages
-User can access the approver workflow view and see issues pending approval

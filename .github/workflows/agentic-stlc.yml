@@ -20,9 +20,15 @@ on:
   workflow_dispatch:
     inputs:
       full_run:
-        description: Run all active scenarios instead of incremental selection
+        description: "Run all active scenarios (not just new/updated)"
         required: false
         default: "true"
+        type: boolean
+      demo_mode:
+        description: "DEMO_MODE: use pre-generated Kane results, skip live Kane calls"
+        required: false
+        default: "false"
+        type: boolean
 
 env:
   NODE_VERSION: "22"
@@ -30,11 +36,14 @@ env:
 
 jobs:
 
-  # ── Stage 1: Kane AI verifies each acceptance criterion against the live site ──
+  # ── Stage 1: KaneAI functional verification against live Power App ────────────
+  # No hard timeout — KaneAI wall-clock is bounded by slowest criterion (90s),
+  # not the sum, thanks to parallel workers. npm/pip cached after first run.
   analyze:
-    name: Stage 1 · Analyze Requirements (Kane AI)
+    name: "Stage 1 · KaneAI Verification"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    env:
+      DEMO_MODE: ${{ inputs.demo_mode || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,21 +55,62 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      # Cache npm so kane-cli install is fast on subsequent runs
+      - name: Cache npm packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-kane-${{ runner.os }}-${{ env.NODE_VERSION }}
+          restore-keys: npm-kane-${{ runner.os }}-
+
+      # Cache pip so Python dependency install is fast on subsequent runs
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      # Cache Kane results keyed on requirements content hash.
+      # If requirements/*.txt files are unchanged, skip live Kane calls entirely.
+      - name: Cache Kane results (by requirements hash)
+        id: kane-cache
+        uses: actions/cache@v4
+        with:
+          path: requirements/analyzed_requirements.json
+          key: kane-results-${{ hashFiles('requirements/*.txt') }}
+
       - name: Install Kane CLI
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
         run: npm install -g @testmuai/kane-cli
 
-      - name: Configure Kane CLI project and folder
+      - name: Configure Kane CLI project
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
         run: |
           kane-cli config project 01J2VAWPNBPA21T0BW44JW026X
           kane-cli config folder 01KPD0NC5ZXZD9EXB23QCATTG2
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
 
-      - name: Run requirement analysis
+      # DEMO_MODE: load pre-generated results — completes in <5 seconds
+      - name: Run KaneAI (DEMO_MODE — pre-generated results)
+        if: env.DEMO_MODE == 'true'
+        run: python ci/analyze_requirements.py --demo-mode
+
+      # Cache hit: requirements unchanged — skip live Kane calls
+      - name: Run KaneAI (cache hit — requirements unchanged)
+        if: steps.kane-cache.outputs.cache-hit == 'true' && env.DEMO_MODE != 'true'
+        run: echo "CACHE HIT — reusing Kane results (requirements unchanged)"
+
+      # Cache miss: run live KaneAI verification
+      - name: Run KaneAI (live verification)
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+          POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: python ci/analyze_requirements.py
 
       - uses: actions/upload-artifact@v4
@@ -68,14 +118,15 @@ jobs:
         with:
           name: analyzed-requirements
           path: requirements/analyzed_requirements.json
+          retention-days: 30
 
-  # ── Stages 2-5: Orchestrator manages scenarios, generates tests, runs on
-  #    HyperExecute, fetches results via MCP, builds traceability + verdict ──
+  # ── Stages 2-7: Scenario sync, test gen, HyperExecute, traceability, verdict ──
+  # No hard timeout — HyperExecute wall-clock is bounded by concurrency setting.
+  # Pip cached. HE CLI download is the only non-cached network step.
   orchestrate:
-    name: Stages 2-5 · Orchestrator
+    name: "Stages 2-7 · Orchestrator"
     needs: analyze
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     env:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
@@ -85,20 +136,27 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
       - uses: actions/download-artifact@v4
         with:
           name: analyzed-requirements
           path: requirements
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
       - name: Download HyperExecute CLI
         run: |
-          curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+          curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
           chmod +x hyperexecute
 
-      - name: Run Agent (Stages 2-5)
+      - name: Run orchestrator (Stages 2-7)
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
@@ -109,11 +167,16 @@ jobs:
           FULL_RUN: ${{ inputs.full_run || 'true' }}
         run: python ci/agent.py
 
+      - name: Generate pipeline metrics
+        if: always()
+        run: python ci/pipeline_metrics.py
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: agent-reports
+          name: pipeline-reports
           path: |
             reports/
             scenarios/scenarios.json
             tests/playwright/test_powerapps.py
+          retention-days: 30

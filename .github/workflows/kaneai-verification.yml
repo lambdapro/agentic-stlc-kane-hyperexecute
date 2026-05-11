@@ -1,0 +1,121 @@
+name: KaneAI Verification (Standalone)
+
+# Standalone KaneAI verification workflow.
+# Runs Stage 1 independently — useful for:
+#   - Re-verifying requirements after app changes without full pipeline
+#   - Demo runs with DEMO_MODE to show the pipeline without live Kane calls
+#   - Debugging Kane session issues in isolation
+
+on:
+  workflow_dispatch:
+    inputs:
+      demo_mode:
+        description: "Use pre-generated results (no live Kane calls, completes in <30s)"
+        required: false
+        default: "false"
+        type: boolean
+      requirements_file:
+        description: "Requirements file to analyze (default: all *.txt in requirements/)"
+        required: false
+        default: "requirements"
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  kaneai-verification:
+    name: "KaneAI Functional Verification"
+    runs-on: ubuntu-latest
+    env:
+      DEMO_MODE: ${{ inputs.demo_mode || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache npm packages (Kane CLI)
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-kane-${{ runner.os }}-${{ env.NODE_VERSION }}
+          restore-keys: npm-kane-${{ runner.os }}-
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Cache Kane results
+        id: kane-cache
+        if: env.DEMO_MODE != 'true'
+        uses: actions/cache@v4
+        with:
+          path: requirements/analyzed_requirements.json
+          key: kane-results-${{ hashFiles('requirements/*.txt') }}
+
+      - name: Install Kane CLI
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
+        run: npm install -g @testmuai/kane-cli
+
+      - name: Configure Kane CLI project
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
+        run: |
+          kane-cli config project 01J2VAWPNBPA21T0BW44JW026X
+          kane-cli config folder 01KPD0NC5ZXZD9EXB23QCATTG2
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - name: Run KaneAI (DEMO_MODE)
+        if: env.DEMO_MODE == 'true'
+        run: |
+          echo "DEMO_MODE: loading pre-generated Kane results"
+          python ci/analyze_requirements.py --demo-mode
+          echo "Done — no live Kane calls made"
+
+      - name: Run KaneAI (cache hit)
+        if: steps.kane-cache.outputs.cache-hit == 'true' && env.DEMO_MODE != 'true'
+        run: |
+          echo "CACHE HIT — requirements unchanged, reusing previous Kane results"
+
+      - name: Run KaneAI (live verification)
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
+        env:
+          LT_USERNAME: ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+          POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          echo "Running live KaneAI verification..."
+          python ci/analyze_requirements.py --requirements ${{ inputs.requirements_file || 'requirements' }}
+
+      - name: Show Kane results summary
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+          data = json.loads(Path('requirements/analyzed_requirements.json').read_text())
+          print(f'{'ID':8} {'Status':<9} {'One-liner':<60}')
+          print('-' * 80)
+          for item in data:
+              print(f\"{item['id']:8} {item['kane_status']:<9} {item.get('kane_one_liner','')[:60]}\")
+          passed = sum(1 for i in data if i['kane_status'] == 'passed')
+          print(f'\nResult: {passed}/{len(data)} criteria passed')
+          "
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kane-verification-results
+          path: requirements/analyzed_requirements.json
+          retention-days: 30
