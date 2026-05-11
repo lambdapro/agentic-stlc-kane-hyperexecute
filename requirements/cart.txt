@@ -1,4 +1,4 @@
-Title: Issue Reporting Power App — Cart / Additional Requirements (reserved)
+Title: LambdaTest Ecommerce Playground — Additional Requirements (reserved)
 
-This file is reserved for additional Power Apps requirements.
+This file is reserved for additional ecommerce requirements.
 No acceptance criteria defined here.
