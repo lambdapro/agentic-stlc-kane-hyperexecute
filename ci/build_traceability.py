@@ -255,13 +255,14 @@ def main():
         kane_summary = req.get("kane_summary", "")
         kane_steps = req.get("kane_steps", [])
 
-        # ── Combined overall ──────────────────────────────────────────────────
+        # ── Combined overall — BOTH Kane AND Playwright must pass ────────────
         if playwright_overall != "data_unavailable":
-            overall = playwright_overall
             executed += 1
-            if playwright_overall == "passed":
+            if playwright_overall == "passed" and kane_status == "passed":
+                overall = "passed"
                 passed += 1
             else:
+                overall = "failed"
                 failing.append(sc_id)
         else:
             untested.append(req["id"])
