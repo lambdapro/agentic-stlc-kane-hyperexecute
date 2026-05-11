@@ -32,13 +32,11 @@ BUILD_NAME        = (
 JOB_ID_RE = re.compile(r"jobId=([\w-]+)")
 
 # ── Deterministic test generation ──────────────────────────────────────────
-FUNCTION_NAMES = {
-    "SC-001": "test_sc_001_navigate_to_app_and_see_issues_list",
-    "SC-002": "test_sc_002_create_new_issue_report",
-    "SC-003": "test_sc_003_view_issue_details",
-    "SC-004": "test_sc_004_filter_issues_by_status",
-    "SC-005": "test_sc_005_navigate_back_from_detail_view",
-}
+def _derive_fn_name(sc_id: str, title: str) -> str:
+    """Derive a stable pytest function name from scenario ID + title."""
+    import re as _re
+    slug = _re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:50]
+    return f"test_{sc_id.lower().replace('-', '_')}_{slug}"
 
 TEST_HEADER = '''\
 """
@@ -142,7 +140,7 @@ _FALLBACK_BODY = '''\
 
 def _build_test_function(scenario: dict) -> str:
     sc_id   = scenario["id"]
-    fn_name = FUNCTION_NAMES.get(sc_id, f"test_{sc_id.lower().replace('-','_')}")
+    fn_name = scenario.get("function_name") or _derive_fn_name(sc_id, scenario.get("title", sc_id))
     title   = scenario.get("title", sc_id).replace('"', "'")
     url     = scenario.get("kane_url", TARGET_URL)
     body    = PLAYWRIGHT_BODIES.get(sc_id, _FALLBACK_BODY).format(url=url)
@@ -184,11 +182,18 @@ def sync_scenarios(requirements: list, existing: list) -> list:
                 else "active"
             )
 
+        title = req.get("kane_one_liner") or req.get("title", req["id"])
+        fn_name = (
+            existing_sc.get("function_name")
+            if existing_sc
+            else _derive_fn_name(sc_id, title)
+        )
         result.append({
             "id":                 sc_id,
             "test_case_id":       tc_id,
             "requirement_id":     req["id"],
-            "title":              req.get("kane_one_liner") or req.get("title", req["id"]),
+            "title":              title,
+            "function_name":      fn_name,
             "status":             status,
             "source_description": req["description"],
             "steps":              req.get("kane_steps") or [
@@ -202,7 +207,10 @@ def sync_scenarios(requirements: list, existing: list) -> list:
     # Preserve deprecated entries for removed requirements
     for sc in existing:
         if sc["requirement_id"] not in current_req_ids:
-            result.append({**sc, "status": "deprecated"})
+            deprecated = {**sc, "status": "deprecated"}
+            if "function_name" not in deprecated:
+                deprecated["function_name"] = _derive_fn_name(sc["id"], sc.get("title", sc["id"]))
+            result.append(deprecated)
 
     return result
 
@@ -225,6 +233,11 @@ def generate_tests(scenarios: list) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
+    # Ensure function_name is set on each active scenario (for downstream scripts)
+    for sc in active:
+        if not sc.get("function_name"):
+            sc["function_name"] = _derive_fn_name(sc["id"], sc.get("title", sc["id"]))
+
     Path("kane").mkdir(exist_ok=True)
     Path("kane/objectives.json").write_text(json.dumps(objectives, indent=2), encoding="utf-8")
     print(f"[generate_tests] wrote {len(active)} test(s)")
@@ -239,8 +252,8 @@ def write_test_selection(scenarios: list) -> list:
 
     lines = []
     for sc in selected:
-        fn = FUNCTION_NAMES.get(sc["id"], f"test_{sc['id'].lower().replace('-','_')}")
-        lines.append(f"tests/selenium/test_products.py::{fn}")
+        fn = sc.get("function_name") or _derive_fn_name(sc["id"], sc.get("title", sc["id"]))
+        lines.append(f"tests/playwright/test_powerapps.py::{fn}")
 
     Path("reports").mkdir(exist_ok=True)
     Path("reports/pytest_selection.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -531,7 +544,15 @@ def write_recommendation(he_tasks: list, requirements_total: int) -> None:
 
 # ── Post-pipeline: deterministic CI report scripts ─────────────────────────
 def post_pipeline() -> None:
-    for script in ["ci/build_traceability.py", "ci/write_github_summary.py"]:
+    # Order matters: normalize → validate → traceability → release → summary
+    scripts = [
+        "ci/normalize_artifacts.py",
+        "ci/validate_report.py",
+        "ci/build_traceability.py",
+        "ci/release_recommendation.py",
+        "ci/write_github_summary.py",
+    ]
+    for script in scripts:
         print(f"\n[post-pipeline] running {script} ...")
         result = subprocess.run(
             ["python", script],
@@ -559,8 +580,11 @@ async def main() -> None:
     counts = {s: sum(1 for x in scenarios if x["status"] == s) for s in ("new", "updated", "active", "deprecated")}
     print(f"[scenarios] {counts}")
 
-    # Stage 3: Generate tests
+    # Stage 3: Generate tests (also stamps function_name onto each scenario)
     generate_tests(scenarios)
+
+    # Persist scenarios.json with function_name now set
+    sc_path.write_text(json.dumps(scenarios, indent=2), encoding="utf-8")
 
     # Stage 4: Write test selection
     write_test_selection(scenarios)
@@ -571,11 +595,7 @@ async def main() -> None:
     # Stage 6: Fetch MCP results → reports/api_details.json
     await fetch_and_save_mcp_results(job_id)
 
-    # Stage 7: Release recommendation
-    api_details = json.loads(Path("reports/api_details.json").read_text(encoding="utf-8"))
-    write_recommendation(api_details.get("he_tasks", []), len(requirements))
-
-    # Post: CI report scripts (traceability + GitHub summary)
+    # Stage 7: Normalize artifacts → validate → traceability → release → summary
     post_pipeline()
     print("\n[pipeline] complete")
 

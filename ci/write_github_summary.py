@@ -1,3 +1,19 @@
+"""
+GitHub Actions step summary renderer.
+
+Pure data renderer — reads only from real artifacts:
+  - requirements/analyzed_requirements.json
+  - scenarios/scenarios.json
+  - reports/normalized_results.json
+  - reports/traceability_matrix.json
+  - reports/api_details.json
+  - reports/release_recommendation.md
+  - reports/validation_report.json
+  - reports/test_execution_manifest.json
+  - kane/objectives.json
+
+Produces factual tables only. No first-person narration. No fabricated values.
+"""
 import json
 import os
 import re
@@ -5,13 +21,16 @@ from pathlib import Path
 
 
 def load_json(path, default):
-    file_path = Path(path)
-    if not file_path.exists():
+    p = Path(path)
+    if not p.exists():
         return default
-    content = file_path.read_text(encoding="utf-8").strip()
+    content = p.read_text(encoding="utf-8").strip()
     if not content:
         return default
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except Exception:
+        return default
 
 
 def emit(text):
@@ -26,29 +45,29 @@ def verdict_emoji(verdict):
     return {"GREEN": "🟢", "YELLOW": "🟡", "RED": "🔴"}.get(verdict, "⚪")
 
 
-def status_emoji(status):
-    if status in ("passed", "active"):
-        return "✅"
-    if status in ("failed", "deprecated"):
-        return "❌"
-    if status == "new":
-        return "🆕"
-    if status == "updated":
-        return "🔄"
-    return "⏭️"
+def status_icon(status):
+    mapping = {
+        "passed": "✅",
+        "failed": "❌",
+        "skipped": "⏭️",
+        "data_unavailable": "⚠️",
+        "new": "🆕",
+        "updated": "🔄",
+        "active": "✅",
+        "deprecated": "🚫",
+    }
+    return mapping.get(status, "❓")
 
 
-def extract_he_job_link(failure_analysis_path="reports/hyperexecute_failure_analysis.md"):
-    path = Path(failure_analysis_path)
-    if not path.exists():
-        return "", ""
-    text = path.read_text(encoding="utf-8")
-    match = re.search(r"https://hyperexecute\.lambdatest\.com/hyperexecute/task\?jobId=([\w-]+)", text)
-    if not match:
-        return "", ""
-    job_id = match.group(1)
-    job_link = match.group(0)
-    return job_id, job_link
+def _he_job_id_from_log():
+    for path in ("reports/hyperexecute-cli.log", "reports/hyperexecute_failure_analysis.md"):
+        p = Path(path)
+        if not p.exists():
+            continue
+        m = re.search(r"jobId=([\w-]+)", p.read_text(encoding="utf-8"))
+        if m:
+            return m.group(1)
+    return ""
 
 
 def main():
@@ -57,184 +76,135 @@ def main():
     requirements = load_json("requirements/analyzed_requirements.json", [])
     scenarios = load_json("scenarios/scenarios.json", [])
     manifest = load_json("reports/test_execution_manifest.json", {})
-    objectives = load_json("kane/objectives.json", [])
     trace_json = load_json("reports/traceability_matrix.json", {})
     api_details = load_json("reports/api_details.json", {})
+    normalized_raw = load_json("reports/normalized_results.json", {})
+    normalized = normalized_raw.get("results", [])
+    validation = load_json("reports/validation_report.json", {})
 
     he_api = api_details.get("he_summary", {})
-    # Deduplicate by test name: LT API returns newest session first, so the first
-    # occurrence of each name is the latest result (e.g. after a retry).
     _seen_he: dict = {}
-    for _t in api_details.get("he_tasks", []):
-        _key = _t.get("name") or _t.get("task_id", "")
-        _seen_he.setdefault(_key, _t)
+    for t in api_details.get("he_tasks", []):
+        key = t.get("name") or t.get("task_id", "")
+        _seen_he.setdefault(key, t)
     he_tasks_api = list(_seen_he.values())
-    kane_sessions_api = {s["requirement_id"]: s for s in api_details.get("kane_sessions", [])}
-
-    # ── Classify requirements ──────────────────────────────────────────────
-    kane_failed = [r for r in requirements if r.get("kane_status") == "failed"]
-
-    # ── Classify scenarios ─────────────────────────────────────────────────
-    new_scenarios = [s for s in scenarios if s.get("status") == "new"]
-    updated_scenarios = [s for s in scenarios if s.get("status") == "updated"]
-    active_scenarios = [s for s in scenarios if s.get("status") == "active"]
-    deprecated_scenarios = [s for s in scenarios if s.get("status") == "deprecated"]
-
-    existing_covered_ids = {s["requirement_id"] for s in active_scenarios}
-    new_needed_ids = {s["requirement_id"] for s in new_scenarios + updated_scenarios}
-
-    # ── Execution stats ────────────────────────────────────────────────────
-    selected = manifest.get("selected_scenarios", [])
-    run_type = manifest.get("run_type", "full")
-    he_job_id = he_api.get("job_id", "") or extract_he_job_link()[0]
-    he_job_link = he_api.get("job_link", "")
-    he_selenium_link = he_api.get("selenium_reports_link", "")
-    he_runtime_link = he_api.get("runtime_logs_link", "")
 
     trace_summary = trace_json.get("summary", {})
     trace_rows = trace_json.get("rows", [])
+    result_analysis = trace_json.get("result_analysis", {})
+
     executed = trace_summary.get("executed", 0)
     passed = trace_summary.get("passed", 0)
-    failed_count = executed - passed
     pass_rate = trace_summary.get("pass_rate", 0.0)
+    all_browsers = trace_summary.get("browsers_tested", [])
     failing_scenarios = trace_summary.get("failing_scenarios", [])
     untested = trace_summary.get("untested_requirements", [])
 
-    # ── Verdict ────────────────────────────────────────────────────────────
+    he_job_id = he_api.get("job_id", "") or _he_job_id_from_log()
+    he_job_link = he_api.get("job_link", "") or (
+        f"https://hyperexecute.lambdatest.com/hyperexecute/task?jobId={he_job_id}"
+        if he_job_id else ""
+    )
+    he_status = he_api.get("status", "unknown")
+
     release_md = Path("reports/release_recommendation.md")
-    verdict_line = "unknown"
+    verdict_line = "UNKNOWN"
     recommendation_line = ""
     if release_md.exists():
         for line in release_md.read_text(encoding="utf-8").splitlines():
             if line.startswith("**Verdict:**"):
                 verdict_line = line.replace("**Verdict:**", "").strip()
-            if line.startswith("Approve") or line.startswith("Block") or line.startswith("Conditional"):
+            if line.startswith("## Recommendation") is False and (
+                line.startswith("Approve") or line.startswith("Block") or line.startswith("Conditional")
+            ):
                 recommendation_line = line.strip()
 
-    emit("# 🤖 Agentic STLC with Kane AI and HyperExecute")
+    # ── Header ────────────────────────────────────────────────────────────────
+    emit("# Agentic STLC — Power Apps Pipeline Report")
     emit("")
     if run_url:
         emit(f"> **Run:** {run_url}")
     emit("")
 
-    # ── Stage 1: Requirement Analysis ─────────────────────────────────────
-    emit("## Stage 1 · Requirement Analysis")
+    # ── Stage 1: Kane AI Requirement Analysis ─────────────────────────────────
+    emit("## Stage 1 · Kane AI Functional Verification")
     emit("")
     if not requirements:
-        emit("_No requirements found._")
+        emit("_No requirements data found in analyzed_requirements.json._")
     else:
-        new_req_titles = [
-            r["title"] for r in requirements if r["id"] in new_needed_ids
-        ]
-        existing_req_titles = [
-            r["title"] for r in requirements if r["id"] in existing_covered_ids
-        ]
-
-        emit(
-            f"I analyzed **{len(requirements)} acceptance criteria** from the requirements files "
-            f"and ran Kane AI against the live ecommerce site to verify each one."
-        )
+        emit(f"| Req ID | Acceptance Criterion | Kane Status | What Kane Observed |")
+        emit("|---|---|---|---|")
+        for r in requirements:
+            kane_status = r.get("kane_status", "unknown")
+            icon = status_icon(kane_status)
+            one_liner = r.get("kane_one_liner", "") or "—"
+            kane_links = r.get("kane_links", [])
+            link = f"[session]({kane_links[0]})" if kane_links else "—"
+            criterion = r.get("description", "")[:60]
+            emit(f"| `{r['id']}` | {criterion} | {icon} {kane_status} | {one_liner} |")
         emit("")
 
-        if existing_req_titles:
-            emit(
-                f"**{len(existing_req_titles)} requirement(s) already covered** by existing test cases — no new tests needed:"
-            )
-            for title in existing_req_titles:
-                emit(f"- ✅ {title}")
-            emit("")
-
-        if new_req_titles:
-            emit(
-                f"**{len(new_req_titles)} requirement(s) introduced new coverage needs** — test cases will be generated:"
-            )
-            for r in requirements:
-                if r["id"] in new_needed_ids:
-                    icon = status_emoji(r.get("kane_status", "unknown"))
-                    kane_links = r.get("kane_links", [])
-                    session = kane_sessions_api.get(r["id"], {})
-                    session_link = session.get("link") or (kane_links[0] if kane_links else "")
-                    link = f" — [session]({session_link})" if session_link else ""
-                    # one_liner from run_end: what Kane AI actually observed on the site
-                    one_liner = r.get("kane_one_liner", "")
-                    observed = f" · _{one_liner}_" if one_liner else ""
-                    emit(f"- {icon} `{r['id']}` {r['title']}{observed}{link}")
-            emit("")
-
+        kane_failed = [r for r in requirements if r.get("kane_status") == "failed"]
         if kane_failed:
-            emit(f"⚠️ **{len(kane_failed)} criterion/criteria could not be verified by Kane AI:**")
+            emit(f"**{len(kane_failed)} criterion/criteria failed Kane AI verification:**")
             for r in kane_failed:
-                kane_links = r.get("kane_links", [])
-                session = kane_sessions_api.get(r["id"], {})
-                session_link = session.get("link") or (kane_links[0] if kane_links else "")
-                link = f" — [session]({session_link})" if session_link else ""
-                one_liner = r.get("kane_one_liner", "")
-                observed = f" · _{one_liner}_" if one_liner else ""
-                emit(f"- ❌ `{r['id']}` {r['title']}{observed}{link}")
+                emit(f"- ❌ `{r['id']}` {r.get('title', '')} — {r.get('kane_one_liner', '')}")
             emit("")
 
-    # ── Stage 2: Scenario Management ──────────────────────────────────────
-    emit("## Stage 2 · Scenario Management")
+    # ── Stage 2: Scenario Management ──────────────────────────────────────────
+    emit("## Stage 2 · Scenario Catalog")
     emit("")
-    emit(
-        f"I synchronized the scenario catalog with the analyzed requirements. "
-        f"Out of **{len(scenarios)} total scenarios**: "
-        f"**{len(active_scenarios)} unchanged**, "
-        f"**{len(new_scenarios)} new**, "
-        f"**{len(updated_scenarios)} updated**, "
-        f"**{len(deprecated_scenarios)} deprecated**."
-    )
-    if new_scenarios or updated_scenarios:
-        emit("")
-        emit("New and updated scenarios that will be tested this run:")
-        for s in new_scenarios + updated_scenarios:
-            emit(f"- {status_emoji(s['status'])} `{s['id']}` {s['title']}")
-    emit("")
-
-    # ── Stage 3: Test Generation ───────────────────────────────────────────
-    emit("## Stage 3 · Test Generation with Kane AI")
-    emit("")
-    generated_count = len(new_scenarios) + len(updated_scenarios)
-    if generated_count:
+    if scenarios:
+        new_sc = [s for s in scenarios if s.get("status") == "new"]
+        updated_sc = [s for s in scenarios if s.get("status") == "updated"]
+        active_sc = [s for s in scenarios if s.get("status") == "active"]
+        deprecated_sc = [s for s in scenarios if s.get("status") == "deprecated"]
         emit(
-            f"I generated **{generated_count} Selenium test case(s)** using Kane AI objectives — "
-            f"one per new or updated scenario. Each test is fully mapped back to its acceptance criterion."
+            f"Total: **{len(scenarios)}** — "
+            f"{len(active_sc)} active, {len(new_sc)} new, "
+            f"{len(updated_sc)} updated, {len(deprecated_sc)} deprecated"
         )
+        if new_sc or updated_sc:
+            emit("")
+            emit("| Scenario | Status | Requirement |")
+            emit("|---|---|---|")
+            for s in new_sc + updated_sc:
+                emit(f"| `{s['id']}` {s.get('title', '')} | {status_icon(s['status'])} {s['status']} | `{s.get('requirement_id', '')}` |")
+    emit("")
+
+    # ── Stage 3: Test Generation ───────────────────────────────────────────────
+    emit("## Stage 3 · Generated Playwright Tests")
+    emit("")
+    objectives = load_json("kane/objectives.json", [])
+    active_scenarios_set = {s["id"] for s in scenarios if s.get("status") != "deprecated"}
+    active_objectives = [o for o in objectives if o.get("scenario_id") in active_scenarios_set]
+    if active_objectives:
+        emit(f"**{len(active_objectives)}** test function(s) in `tests/playwright/test_powerapps.py`:")
         emit("")
-        for obj in objectives:
-            sc_id = obj.get("scenario_id", "")
-            tc_id = obj.get("test_case_id", "")
-            scenario = next((s for s in scenarios if s["id"] == sc_id), {})
-            if scenario.get("status") in ("new", "updated"):
-                emit(f"- 🆕 `{sc_id}` → `{tc_id}` — {scenario.get('title', obj.get('objective', ''))}")
+        emit("| Scenario | Test Case | Function |")
+        emit("|---|---|---|")
+        for o in active_objectives:
+            sc = next((s for s in scenarios if s["id"] == o["scenario_id"]), {})
+            fn = sc.get("function_name", o.get("objective", ""))
+            emit(f"| `{o['scenario_id']}` | `{o.get('test_case_id', '')}` | `{fn}` |")
     else:
-        emit("No new test cases were generated — all requirements were already covered.")
+        emit("_No test generation data available._")
     emit("")
 
-    # ── Stage 4a: Test Selection ───────────────────────────────────────────
-    emit("## Stage 4a · Test Selection")
+    # ── Stage 4: Test Selection ────────────────────────────────────────────────
+    emit("## Stage 4 · Test Selection")
     emit("")
-    emit(
-        f"Running a **{run_type} run** — selected **{len(selected)} scenario(s)** for execution on HyperExecute."
-    )
-    if selected:
-        for sc_id in selected:
-            emit(f"- `{sc_id}`")
+    selected = manifest.get("selected_scenarios", [])
+    run_type = manifest.get("run_type", "unknown")
+    emit(f"Run type: **{run_type}** · **{len(selected)}** scenario(s) submitted to HyperExecute")
     emit("")
 
-    # ── Stage 4b: Execution ────────────────────────────────────────────────
-    emit("## Stage 4b · Regression Execution at Scale (HyperExecute)")
-    emit("")
-    emit(
-        f"I submitted the selected tests to **LambdaTest HyperExecute** for parallel cloud execution. "
-        f"Tests ran across multiple workers simultaneously — no sequential bottleneck."
-    )
+    # ── Stage 5: HyperExecute Execution (multi-browser) ───────────────────────
+    emit("## Stage 5 · HyperExecute Regression (Multi-Browser)")
     emit("")
 
-    he_passed_api = sum(1 for t in he_tasks_api if t["status"] == "passed")
-    he_failed_api = len(he_tasks_api) - he_passed_api
-    he_total = he_api.get("total_tasks") or len(he_tasks_api) or len(selected)
-    he_status = he_api.get("status", "unknown")
+    he_passed_count = sum(1 for t in he_tasks_api if t.get("status") == "passed")
+    he_total_count = len(he_tasks_api) or he_api.get("total_tasks", 0) or len(selected)
 
     emit("| Metric | Value |")
     emit("|---|---|")
@@ -243,106 +213,119 @@ def main():
     else:
         emit(f"| HyperExecute Job ID | `{he_job_id or 'n/a'}` |")
     emit(f"| Status | {he_status} |")
-    emit(f"| Total tasks | {he_total} |")
-    emit(f"| ✅ Passed | {he_passed_api} |")
-    emit(f"| ❌ Failed | {he_failed_api} |")
-    if he_selenium_link:
-        emit(f"| Selenium reports | [Download artifacts ↗]({he_selenium_link}) |")
-    if he_runtime_link:
-        emit(f"| Runtime logs | [View logs ↗]({he_runtime_link}) |")
+    emit(f"| Browsers | {', '.join(all_browsers) if all_browsers else 'chrome (default)'} |")
+    emit(f"| Total tasks | {he_total_count} |")
+    emit(f"| ✅ Passed | {he_passed_count} |")
+    emit(f"| ❌ Failed | {he_total_count - he_passed_count} |")
+    emit(f"| Pass rate | {pass_rate}% |")
     emit("")
 
-    # ── HyperExecute Execution Report (before traceability) ───────────────
-    emit("## Regression on HyperExecute")
-    emit("")
     if he_tasks_api:
-        he_run_passed = sum(1 for t in he_tasks_api if t["status"] == "passed")
-        he_run_failed = len(he_tasks_api) - he_run_passed
-        emit(
-            f"**{he_run_passed}/{len(he_tasks_api)}** tests passed on HyperExecute "
-            f"({he_run_failed} failed)."
-        )
+        emit("### Per-Test Results")
         emit("")
         emit("| Test | Status | Session |")
         emit("|---|---|---|")
         for task in he_tasks_api:
-            status_icon = "✅" if task["status"] == "passed" else "❌"
+            icon = "✅" if task.get("status") == "passed" else "❌"
             session = f"[View session]({task['session_link']})" if task.get("session_link") else "—"
-            emit(f"| `{task['name'] or task['task_id']}` | {status_icon} {task['status']} | {session} |")
-        emit("")
-    elif he_job_link:
-        emit(f"No per-test data available yet — [view job on HyperExecute ↗]({he_job_link})")
-        emit("")
-    else:
-        emit("_No HyperExecute execution data available._")
+            emit(f"| `{task.get('name') or task.get('task_id', 'unknown')}` | {icon} {task.get('status', 'unknown')} | {session} |")
         emit("")
 
-    # ── Stage 5: Traceability ──────────────────────────────────────────────
-    emit("## Stage 5 · Results with Full Traceability")
+    # ── Multi-browser breakdown from normalized results ────────────────────────
+    if normalized and all_browsers:
+        emit("### Browser Breakdown")
+        emit("")
+        emit(f"| Scenario | " + " | ".join(b.capitalize() for b in all_browsers) + " |")
+        emit("|---| " + " | ".join("---" for _ in all_browsers) + " |")
+        by_sc: dict = {}
+        for r in normalized:
+            by_sc.setdefault(r["scenario_id"], {})[r["browser"]] = r.get("status", "data_unavailable")
+        for sc_id in sorted(by_sc):
+            cells = " | ".join(
+                f"{status_icon(by_sc[sc_id].get(b, 'data_unavailable'))} {by_sc[sc_id].get(b, '—')}"
+                for b in all_browsers
+            )
+            emit(f"| `{sc_id}` | {cells} |")
+        emit("")
+
+    # ── Stage 6: Traceability Matrix ───────────────────────────────────────────
+    emit("## Stage 6 · Traceability Matrix")
     emit("")
     emit(
-        f"Every test result is traced back to its requirement. "
-        f"Functional cases are verified by **Kane AI**; regression at scale is executed by **HyperExecute**. "
-        f"**{passed}/{executed}** regression tests passed ({pass_rate}% pass rate)."
+        f"**{passed}/{executed}** regression tests passed across "
+        f"**{len(all_browsers) or 1}** browser(s) — {pass_rate}% pass rate"
     )
     emit("")
 
     if trace_rows:
-        emit("| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | Kane Session | What Kane Saw | Selenium | Selenium Session | Overall |")
-        emit("|---|---|---|---|---|---|---|---|---|---|")
+        browser_header = " | ".join(b.capitalize() for b in all_browsers) if all_browsers else "Browser"
+        browser_sep = " | ".join("---" for _ in (all_browsers or ["chrome"]))
+        emit(
+            f"| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | Kane Session | What Kane Saw | "
+            f"{browser_header} | Playwright | Session | Overall |"
+        )
+        emit(f"|---|---|---|---|---|---|---|{browser_sep}|---|---|---|")
+
         for row in trace_rows:
-            kane = row.get("kane_ai_result", "unknown")
             req_id = row.get("requirement_id", "")
-            one_liner = row.get("kane_one_liner", "") or "—"
-            overall = row.get("overall", "unknown")
-            selenium_result = row.get("selenium_result", "not_run")
-            icon = "✅" if overall == "passed" else ("⏭️" if overall == "not_run" else "❌")
-            criterion = row["acceptance_criterion"][:55] + "…" if len(row["acceptance_criterion"]) > 55 else row["acceptance_criterion"]
+            criterion = (row.get("acceptance_criterion", ""))[:55]
+            if len(row.get("acceptance_criterion", "")) > 55:
+                criterion += "…"
+            kane = row.get("kane_ai_result", "unknown")
             kane_link = row.get("kane_session_link", "")
-            kane_session_cell = f"[session]({kane_link})" if kane_link else "—"
+            kane_cell = f"[session]({kane_link})" if kane_link else "—"
+            one_liner = row.get("kane_one_liner", "") or "—"
+            per_browser = row.get("playwright_per_browser", {})
+            browser_cells = " | ".join(
+                f"{status_icon(per_browser.get(b, 'data_unavailable'))} {per_browser.get(b, '—')}"
+                for b in all_browsers
+            ) if all_browsers else "—"
+            pw = row.get("playwright_status", "data_unavailable")
             sel_link = row.get("session_link", "")
-            sel_session_cell = f"[session]({sel_link})" if sel_link else "—"
+            sel_cell = f"[session]({sel_link})" if sel_link else "—"
+            overall = row.get("overall", "unknown")
+            overall_icon = status_icon(overall)
             emit(
-                f"| `{req_id}` | {criterion} | `{row['scenario_id']}` | `{row['test_case_id']}` "
-                f"| {kane} | {kane_session_cell} | {one_liner} | {selenium_result} | {sel_session_cell} | {icon} {overall} |"
+                f"| `{req_id}` | {criterion} | `{row.get('scenario_id', 'n/a')}` "
+                f"| `{row.get('test_case_id', 'n/a')}` | {kane} | {kane_cell} | {one_liner} "
+                f"| {browser_cells} | {pw} | {sel_cell} | {overall_icon} {overall} |"
             )
         emit("")
 
-        # Collapsible Kane AI detail — steps and full summary per requirement
-        emit("<details>")
-        emit("<summary>Kane AI verification detail (expand)</summary>")
-        emit("")
-        for row in trace_rows:
-            if not row.get("kane_steps") and not row.get("kane_summary"):
-                continue
-            emit(f"**`{row['requirement_id']}` — {row['acceptance_criterion']}**")
+        # Kane AI detail (collapsible)
+        if any(row.get("kane_steps") or row.get("kane_summary") for row in trace_rows):
+            emit("<details>")
+            emit("<summary>Kane AI verification steps (expand)</summary>")
             emit("")
-            if row.get("kane_steps"):
-                for step in row["kane_steps"]:
+            for row in trace_rows:
+                if not row.get("kane_steps") and not row.get("kane_summary"):
+                    continue
+                emit(f"**`{row['requirement_id']}` — {row.get('acceptance_criterion', '')}**")
+                emit("")
+                for step in row.get("kane_steps", []):
                     emit(f"- {step}")
+                if row.get("kane_summary"):
+                    emit("")
+                    emit(f"_{row['kane_summary']}_")
                 emit("")
-            if row.get("kane_summary"):
-                emit(f"_{row['kane_summary']}_")
-                emit("")
-        emit("</details>")
-        emit("")
+            emit("</details>")
+            emit("")
 
-        result_analysis = trace_json.get("result_analysis", {})
-        if result_analysis:
-            emit("### Result Analysis")
+    if result_analysis:
+        emit("### Result Analysis")
+        emit("")
+        emit(f"- **Overall health:** {result_analysis.get('overall_health', 'unknown')}")
+        emit(f"- **Risk level:** {result_analysis.get('risk_level', 'unknown')}")
+        emit(f"- **Kane AI pass rate:** {result_analysis.get('kane_pass_rate', 0)}%")
+        emit(f"- **Playwright pass rate:** {result_analysis.get('playwright_pass_rate', result_analysis.get('selenium_pass_rate', 0))}%")
+        emit("")
+        for finding in result_analysis.get("key_findings", []):
+            emit(f"- {finding}")
+        hint = result_analysis.get("recommendation_hint", "")
+        if hint:
             emit("")
-            emit(f"- **Overall health:** {result_analysis.get('overall_health', 'unknown')}")
-            emit(f"- **Risk level:** {result_analysis.get('risk_level', 'unknown')}")
-            emit(f"- **Kane AI pass rate:** {result_analysis.get('kane_pass_rate', 0)}%")
-            emit(f"- **Selenium pass rate:** {result_analysis.get('selenium_pass_rate', 0)}%")
-            emit("")
-            for finding in result_analysis.get("key_findings", []):
-                emit(f"- {finding}")
-            emit("")
-            recommendation_hint = result_analysis.get("recommendation_hint", "")
-            if recommendation_hint:
-                emit(f"> {recommendation_hint}")
-                emit("")
+            emit(f"> {hint}")
+        emit("")
 
     if failing_scenarios:
         emit("**Failing scenarios:**")
@@ -351,24 +334,42 @@ def main():
         emit("")
 
     if untested and executed > 0:
-        emit("**Requirements not yet covered by Selenium:**")
+        emit("**No execution data for:**")
         for req in untested:
-            emit(f"- ⚠️ `{req}`")
+            emit(f"- ⚠️ `{req}` (data_unavailable)")
         emit("")
 
-    # ── Release Recommendation ─────────────────────────────────────────────
+    # ── Validation Report ──────────────────────────────────────────────────────
+    if validation:
+        valid = validation.get("valid", True)
+        v_errors = validation.get("errors", [])
+        v_warnings = validation.get("warnings", [])
+        emit("## Data Validation")
+        emit("")
+        label = "✅ VALID" if valid else "❌ INVALID"
+        emit(f"Traceability integrity: **{label}**")
+        if v_errors:
+            emit("")
+            for e in v_errors:
+                emit(f"- ❌ {e}")
+        if v_warnings:
+            emit("")
+            for w in v_warnings:
+                emit(f"- ⚠️ {w}")
+        emit("")
+
+    # ── Release Recommendation ─────────────────────────────────────────────────
     emit("## Release Recommendation")
     emit("")
     icon = verdict_emoji(verdict_line)
-    emit(f"### {icon} Verdict: {verdict_line}")
+    emit(f"### {icon} {verdict_line}")
     emit("")
     if recommendation_line:
         emit(recommendation_line)
     emit("")
-    emit(
-        f"- Requirements covered: **{trace_summary.get('requirements_covered', '?')}/{trace_summary.get('requirements_total', '?')}**"
-    )
-    emit(f"- HyperExecute pass rate: **{pass_rate}%** ({passed} passed, {failed_count} failed)")
+    emit(f"- Requirements covered: **{trace_summary.get('requirements_covered', '?')}/{trace_summary.get('requirements_total', '?')}**")
+    emit(f"- Browsers tested: **{', '.join(all_browsers) or 'none'}**")
+    emit(f"- Playwright pass rate: **{pass_rate}%** ({passed} passed, {executed - passed} failed)")
     if run_url:
         emit(f"- Full run details: {run_url}")
     emit("")

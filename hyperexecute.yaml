@@ -1,14 +1,20 @@
 version: 0.1
-globalTimeout: 120
-testSuiteTimeout: 120
-testSuiteStep: 120
+globalTimeout: 150
+testSuiteTimeout: 150
+testSuiteStep: 150
 
 runson: linux
 
 autosplit: true
 retryOnFailure: true
 maxRetries: 1
-concurrency: 5
+concurrency: 9
+
+matrix:
+  browser:
+    - chrome
+    - firefox
+    - edge
 
 env:
   LT_USERNAME: ${LT_USERNAME}
@@ -17,6 +23,7 @@ env:
   M365_USERNAME: ${M365_USERNAME}
   M365_PASSWORD: ${M365_PASSWORD}
   POWERAPPS_URL: ${POWERAPPS_URL}
+  BROWSER: $browser
 
 cacheKey: '{{ checksum "requirements.txt" }}'
 cacheDirectories:
@@ -25,7 +32,7 @@ cacheDirectories:
 
 pre:
   - pip install --cache-dir .pip_cache -r requirements.txt
-  - playwright install chromium
+  - playwright install --with-deps chromium firefox msedge
 
 runtime:
   language: python
@@ -36,7 +43,7 @@ testDiscovery:
   mode: dynamic
   command: cat reports/pytest_selection.txt
 
-testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --html=reports/report.html --junitxml=reports/junit.xml
+testRunnerCommand: PYTHONPATH=. BROWSER=$browser pytest "$test" -v --tb=short -s --html=reports/report-$browser.html --junitxml=reports/junit-$browser.xml
 
 mergeArtifacts: true
 uploadArtefacts:
@@ -51,9 +58,10 @@ partialReports:
   frameworkName: extent
 
 post:
-  - echo "Tests complete"
+  - echo "Tests complete for browser=$browser"
 
 jobLabel:
   - powerapps-issue-reporting
   - agentic-stlc
   - playwright
+  - multi-browser

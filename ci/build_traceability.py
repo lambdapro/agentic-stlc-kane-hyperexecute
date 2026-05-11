@@ -1,7 +1,28 @@
+"""
+Build traceability matrix from real execution artifacts only.
+
+Data sources (all real, no fabrication):
+  - requirements/analyzed_requirements.json  — Kane AI functional verification (Stage 1)
+  - scenarios/scenarios.json                 — scenario catalog with function_name
+  - reports/normalized_results.json          — normalized Playwright results (all browsers)
+  - reports/api_details.json                 — HE session links (fallback for session URLs)
+  - reports/junit-*.xml / reports/junit.xml  — raw pytest results (fallback when conftest absent)
+  - reports/test_execution_manifest.json     — run type (full/incremental)
+
+When data is missing: marks as "data_unavailable". Never fabricates values.
+"""
 import argparse
 import json
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+DEBUG = os.environ.get("REPORT_DEBUG", "false").lower() == "true"
+
+
+def _debug(msg):
+    if DEBUG:
+        print(f"[REPORT_DEBUG] {msg}")
 
 
 def parse_args():
@@ -9,120 +30,130 @@ def parse_args():
     parser.add_argument("--requirements", default="requirements/analyzed_requirements.json")
     parser.add_argument("--scenarios", default="scenarios/scenarios.json")
     parser.add_argument("--manifest", default="reports/test_execution_manifest.json")
-    parser.add_argument("--pytest-junit", default="reports/junit.xml")
-    parser.add_argument("--kane-results", default="reports/kane_results.json")
+    parser.add_argument("--normalized", default="reports/normalized_results.json")
+    parser.add_argument("--api-details", default="reports/api_details.json")
     parser.add_argument("--out", default="reports/traceability_matrix.md")
     parser.add_argument("--json-out", default="reports/traceability_matrix.json")
     return parser.parse_args()
 
 
-FUNCTION_NAMES = {
-    "SC-001": "test_sc_001_navigate_to_products_and_view_list",
-    "SC-002": "test_sc_002_filter_products_by_category",
-    "SC-003": "test_sc_003_click_product_view_details",
-    "SC-004": "test_sc_004_product_highlights_visible_without_login",
-    "SC-005": "test_sc_005_relevant_results_for_selected_filter",
-}
-
-
 def load_json(path, default):
-    file_path = Path(path)
-    if not file_path.exists():
-        return default
-    return json.loads(file_path.read_text(encoding="utf-8"))
-
-
-def load_kane_execution_results(reports_dir):
-    """Read per-test Selenium result files written by the conftest fixture."""
-    results = {}
-    for f in sorted(Path(reports_dir).glob("kane_result_SC-*.json")):
-        try:
-            item = json.loads(f.read_text(encoding="utf-8"))
-            results[item["scenario_id"]] = item
-        except Exception:
-            continue
-    return results
-
-
-def load_he_task_results(api_details_path="reports/api_details.json"):
-    """
-    Build a function-name → {status, session_link} map from HyperExecute API data.
-    This is the most reliable source for CI runs where conftest files may not reach
-    the Actions runner.
-    """
-    p = Path(api_details_path)
+    p = Path(path)
     if not p.exists():
-        return {}
+        _debug(f"File not found: {path}")
+        return default
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    results = {}
-    for task in data.get("he_tasks", []):
-        name = task.get("name", "")
-        if name:
-            results[name] = {
-                "status": task.get("status", "unknown"),
-                "session_link": task.get("session_link", ""),
-            }
-    return results
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:
+        _debug(f"Failed to parse {path}: {exc}")
+        return default
 
 
-def load_junit_results(path):
-    file_path = Path(path)
-    if not file_path.exists():
-        return {}
+def _load_normalized_results(path):
+    """
+    Returns:
+      results_by_scenario: {sc_id: [record, ...]}  — all browser results for each scenario
+      all_browsers: sorted list of browsers seen across all results
+    """
+    raw = load_json(path, {})
+    results = raw.get("results", [])
+    by_sc: dict = {}
+    browsers = set()
+    for r in results:
+        sc_id = r.get("scenario_id", "")
+        by_sc.setdefault(sc_id, []).append(r)
+        browsers.add(r.get("browser", "chrome"))
+    _debug(f"Normalized results: {len(results)} records, {len(browsers)} browser(s): {sorted(browsers)}")
+    return by_sc, sorted(browsers)
+
+
+def _junit_fallback(junit_glob="reports"):
+    """Last-resort: parse junit XML files directly. Returns {fn_name: {status, duration_ms}}."""
     results = {}
-    xml_files = [file_path] if file_path.is_file() else sorted(file_path.rglob("*.xml"))
-    for xml_file in xml_files:
+    reports_dir = Path(junit_glob)
+    if not reports_dir.exists():
+        return results
+    for xml_file in sorted(reports_dir.glob("junit*.xml")):
         try:
             root = ET.fromstring(xml_file.read_text(encoding="utf-8"))
         except Exception:
             continue
         for testcase in root.iter("testcase"):
             name = testcase.attrib.get("name", "")
-            result = "passed"
+            duration_ms = round(float(testcase.attrib.get("time", "0") or "0") * 1000)
             if testcase.find("failure") is not None or testcase.find("error") is not None:
-                result = "failed"
+                status = "failed"
             elif testcase.find("skipped") is not None:
-                result = "skipped"
-            results[name] = result
+                status = "skipped"
+            else:
+                status = "passed"
+            results[name] = {"status": status, "duration_ms": duration_ms}
     return results
 
 
-def compute_result_analysis(rows, summary):
+def _overall_status(browser_records: list) -> str:
+    """Aggregate across browsers: failed > skipped > data_unavailable > passed."""
+    if not browser_records:
+        return "data_unavailable"
+    statuses = [r.get("status", "data_unavailable") for r in browser_records]
+    if "failed" in statuses:
+        return "failed"
+    if all(s == "passed" for s in statuses):
+        return "passed"
+    if "skipped" in statuses:
+        return "skipped"
+    return "data_unavailable"
+
+
+def _browser_summary(browser_records: list, all_browsers: list) -> dict:
+    """Returns {browser: status} for table display."""
+    by_browser = {r["browser"]: r.get("status", "data_unavailable") for r in browser_records}
+    return {b: by_browser.get(b, "data_unavailable") for b in all_browsers}
+
+
+def compute_result_analysis(rows, summary, all_browsers):
     total = len(rows)
     kane_passed = sum(1 for r in rows if r.get("kane_ai_result") == "passed")
     kane_ran = sum(1 for r in rows if r.get("kane_ai_result") in ("passed", "failed"))
     kane_pass_rate = round((kane_passed / kane_ran) * 100, 1) if kane_ran else 0.0
-    selenium_pass_rate = summary.get("pass_rate", 0.0)
 
-    failed_requirements = sorted({
+    pw_pass_rate = summary.get("pass_rate", 0.0)
+
+    failed_reqs = sorted({
         r["requirement_id"]
         for r in rows
-        if r.get("kane_ai_result") == "failed" or r.get("overall") not in ("passed", "not_run")
+        if r.get("kane_ai_result") == "failed" or r.get("playwright_status") == "failed"
     })
 
     key_findings = []
     for r in rows:
         req_id = r["requirement_id"]
         kane_fail = r.get("kane_ai_result") == "failed"
-        sel_fail = r.get("overall") == "failed"
-        if kane_fail and sel_fail:
-            key_findings.append(f"{req_id} failed both Kane AI verification and Selenium regression.")
+        pw_fail = r.get("playwright_status") == "failed"
+        if kane_fail and pw_fail:
+            key_findings.append(f"{req_id}: failed both Kane AI verification and Playwright regression.")
         elif kane_fail:
             key_findings.append(
-                f"{req_id} failed Kane AI verification but Selenium result is {r.get('overall', 'unknown')}."
+                f"{req_id}: failed Kane AI verification; Playwright status is {r.get('playwright_status', 'unknown')}."
             )
-        elif sel_fail:
-            key_findings.append(f"{req_id} passed Kane AI verification but failed Selenium regression.")
-    if not key_findings:
-        key_findings.append("All tested requirements passed both Kane AI verification and Selenium regression.")
+        elif pw_fail:
+            key_findings.append(f"{req_id}: passed Kane AI verification but failed Playwright regression.")
 
-    has_failures = bool(failed_requirements)
-    if selenium_pass_rate >= 90 and not has_failures:
+    unavailable = [r for r in rows if r.get("playwright_status") == "data_unavailable"]
+    if unavailable:
+        key_findings.append(
+            f"{len(unavailable)} requirement(s) have no Playwright execution data (data_unavailable)."
+        )
+
+    if not key_findings:
+        key_findings.append(
+            "All tested requirements passed both Kane AI verification and Playwright regression."
+        )
+
+    has_failures = bool(failed_reqs)
+    if pw_pass_rate >= 90 and not has_failures:
         risk_level = "low"
-    elif selenium_pass_rate >= 75:
+    elif pw_pass_rate >= 75:
         risk_level = "medium"
     else:
         risk_level = "high"
@@ -132,27 +163,29 @@ def compute_result_analysis(rows, summary):
     untested = summary.get("untested_requirements", [])
     if overall_health == "healthy":
         recommendation_hint = (
-            "All requirements passed verification and regression; release can proceed with confidence."
+            "All requirements passed verification and regression across all browsers; "
+            "release can proceed with confidence."
         )
     elif untested:
         recommendation_hint = (
-            f"Release is blocked by {len(failed_requirements)} failing requirement(s) and "
-            f"{len(untested)} untested requirement(s); resolve before shipping."
+            f"Release blocked: {len(failed_reqs)} failing requirement(s) and "
+            f"{len(untested)} with no execution data. Resolve before shipping."
         )
     else:
         recommendation_hint = (
-            f"Release carries medium risk due to {len(failed_requirements)} failing requirement(s); "
-            "review findings before conditional approval."
+            f"Release carries medium risk: {len(failed_reqs)} failing requirement(s). "
+            "Review browser-specific failures before conditional approval."
         )
 
     return {
         "overall_health": overall_health,
         "kane_pass_rate": kane_pass_rate,
-        "selenium_pass_rate": selenium_pass_rate,
+        "playwright_pass_rate": pw_pass_rate,
         "risk_level": risk_level,
         "key_findings": key_findings,
-        "failed_requirements": failed_requirements,
+        "failed_requirements": failed_reqs,
         "recommendation_hint": recommendation_hint,
+        "browsers_tested": all_browsers,
     }
 
 
@@ -161,13 +194,22 @@ def main():
     requirements = load_json(args.requirements, [])
     scenarios = load_json(args.scenarios, [])
     manifest = load_json(args.manifest, {})
-    kane_results = {
-        item["requirement_id"]: item for item in load_json(args.kane_results, [])
+
+    normalized_by_sc, all_browsers = _load_normalized_results(args.normalized)
+
+    # Fallback: parse junit directly if normalized results are absent
+    junit_fallback = {} if normalized_by_sc else _junit_fallback()
+    _debug(f"JUnit fallback entries: {len(junit_fallback)}")
+
+    # HE session links for scenarios that have no conftest result
+    api_details = load_json(args.api_details, {})
+    he_task_links = {
+        (t.get("name") or "").strip(): t.get("session_link", "")
+        for t in api_details.get("he_tasks", [])
+        if t.get("name")
     }
-    kane_execution = load_kane_execution_results(Path(args.pytest_junit).parent)
-    junit_results = load_junit_results(args.pytest_junit)
-    he_task_results = load_he_task_results()
-    scenarios_by_requirement = {scenario["requirement_id"]: scenario for scenario in scenarios}
+
+    scenarios_by_req = {s["requirement_id"]: s for s in scenarios}
 
     rows = []
     executed = 0
@@ -175,128 +217,139 @@ def main():
     untested = []
     failing = []
 
-    for requirement in requirements:
-        scenario = scenarios_by_requirement.get(requirement["id"])
-        test_case_id = scenario.get("test_case_id") if scenario else "n/a"
-        scenario_id = scenario.get("id") if scenario else "n/a"
-        function_name = FUNCTION_NAMES.get(scenario_id, f"test_{scenario_id.lower().replace('-', '_')}")
+    for req in requirements:
+        scenario = scenarios_by_req.get(req["id"])
+        sc_id = scenario["id"] if scenario else "n/a"
+        tc_id = scenario.get("test_case_id", "n/a") if scenario else "n/a"
+        fn_name = scenario.get("function_name", f"test_{sc_id.lower().replace('-','_')}") if scenario else ""
 
-        # Selenium result priority:
-        # 1. conftest-written kane_result_SC-*.json (local runs, most precise)
-        # 2. HyperExecute API task data from api_details.json (CI runs on HE)
-        # 3. junit.xml (last resort)
-        kane_exec = kane_execution.get(scenario_id, {})
-        selenium_session_link = kane_exec.get("link", "")
-        if kane_exec:
-            selenium_result = kane_exec.get("status", "not_run")
-        else:
-            he_task = he_task_results.get(function_name, {})
-            if he_task:
-                selenium_result = he_task.get("status", "not_run")
-                selenium_session_link = he_task.get("session_link", "")
-            else:
-                selenium_result = junit_results.get(function_name, "not_run")
+        # ── Playwright results (multi-browser) ───────────────────────────────
+        browser_records = normalized_by_sc.get(sc_id, [])
 
-        # analyzed_requirements.json is the canonical Stage 1 source.
-        # kane_results.json is supplemental; only use when kane_status is absent
-        # (e.g. legacy runs that predated the field).
-        kane_result = (
-            requirement.get("kane_status")
-            or kane_results.get(requirement["id"], {}).get("status")
-            or "unknown"
+        if not browser_records and fn_name and fn_name in junit_fallback:
+            # Fallback: build a synthetic-free record from junit only
+            jdata = junit_fallback[fn_name]
+            browser_records = [{
+                "scenario_id": sc_id,
+                "browser": "chrome",
+                "status": jdata["status"],
+                "duration_ms": jdata["duration_ms"],
+                "session_link": he_task_links.get(fn_name, ""),
+                "source": "junit",
+            }]
+
+        playwright_overall = _overall_status(browser_records)
+        per_browser = _browser_summary(browser_records, all_browsers)
+
+        # Best session link across browsers
+        session_link = next(
+            (r.get("session_link", "") for r in browser_records if r.get("session_link")),
+            he_task_links.get(fn_name, ""),
         )
-        # Kane AI session link: test_url from run_end stored in kane_links
-        kane_links = requirement.get("kane_links", [])
+
+        # ── Kane AI result (Stage 1, always from analyzed_requirements.json) ─
+        kane_status = req.get("kane_status") or "unknown"
+        kane_links = req.get("kane_links", [])
         kane_session_link = kane_links[0] if kane_links else ""
-        # one_liner and summary from run_end NDJSON for the report detail section
-        kane_one_liner = requirement.get("kane_one_liner", "")
-        kane_summary = requirement.get("kane_summary", "")
-        kane_steps = requirement.get("kane_steps", [])
+        kane_one_liner = req.get("kane_one_liner", "")
+        kane_summary = req.get("kane_summary", "")
+        kane_steps = req.get("kane_steps", [])
 
-        if selenium_result != "not_run":
-            overall = selenium_result
+        # ── Combined overall ──────────────────────────────────────────────────
+        if playwright_overall != "data_unavailable":
+            overall = playwright_overall
             executed += 1
-            if selenium_result == "passed":
+            if playwright_overall == "passed":
                 passed += 1
-            if overall != "passed":
-                failing.append(scenario_id)
+            else:
+                failing.append(sc_id)
         else:
-            untested.append(requirement["id"])
-            overall = "not_run"
+            untested.append(req["id"])
+            overall = "data_unavailable"
 
-        rows.append(
-            {
-                "requirement_id": requirement["id"],
-                "acceptance_criterion": requirement["description"],
-                "scenario_id": scenario_id,
-                "test_case_id": test_case_id,
-                # Kane AI verification fields (Stage 1)
-                "kane_ai_result": kane_result,
-                "kane_session_link": kane_session_link,
-                "kane_one_liner": kane_one_liner,
-                "kane_summary": kane_summary,
-                "kane_steps": kane_steps,
-                # Selenium execution fields (Stage 4)
-                "selenium_result": selenium_result,
-                "session_link": selenium_session_link,
-                "analysis_note": "" if selenium_result != "not_run" else "Test result not yet available.",
-                "overall": overall,
-            }
+        _debug(
+            f"{req['id']}/{sc_id}: kane={kane_status} playwright={playwright_overall} "
+            f"overall={overall} browsers={per_browser}"
         )
+
+        rows.append({
+            "requirement_id": req["id"],
+            "acceptance_criterion": req.get("description", ""),
+            "scenario_id": sc_id,
+            "test_case_id": tc_id,
+            "function_name": fn_name,
+            "kane_ai_result": kane_status,
+            "kane_session_link": kane_session_link,
+            "kane_one_liner": kane_one_liner,
+            "kane_summary": kane_summary,
+            "kane_steps": kane_steps,
+            "playwright_status": playwright_overall,
+            "playwright_per_browser": per_browser,
+            "session_link": session_link,
+            "overall": overall,
+        })
 
     pass_rate = round((passed / executed) * 100, 1) if executed else 0.0
-    # Only flag requirements as untested when selenium actually ran for at least some tests.
-    # If executed == 0, no selenium results are available yet — omit the untested warning.
-    untested_to_report = [
-        req_id for req_id in untested
-        if executed > 0
-    ]
+    untested_to_report = untested if executed > 0 else []
+
     summary = {
         "run_type": manifest.get("run_type", "unknown"),
-        "requirements_covered": len([row for row in rows if row["scenario_id"] != "n/a"]),
+        "requirements_covered": len([r for r in rows if r["scenario_id"] != "n/a"]),
         "requirements_total": len(requirements),
         "executed": executed,
         "passed": passed,
         "pass_rate": pass_rate,
+        "browsers_tested": all_browsers,
         "untested_requirements": untested_to_report,
-        "failing_scenarios": [scenario_id for scenario_id in failing if scenario_id != "n/a"],
+        "failing_scenarios": [s for s in failing if s != "n/a"],
     }
+
+    result_analysis = compute_result_analysis(rows, summary, all_browsers)
+
+    # ── Markdown ──────────────────────────────────────────────────────────────
+    browser_cols = " | ".join(b.capitalize() for b in all_browsers) if all_browsers else "Browser"
+    browser_sep = " | ".join("---" for _ in (all_browsers or ["chrome"]))
 
     lines = [
         "# Traceability Matrix",
         "",
         f"- Run type: {summary['run_type']}",
         f"- Requirements covered: {summary['requirements_covered']}/{summary['requirements_total']}",
-        f"- Selenium pass rate: {summary['pass_rate']}% ({summary['passed']} passed, {summary['executed'] - summary['passed']} failed or skipped)",
+        f"- Browsers tested: {', '.join(all_browsers) or 'none'}",
+        f"- Playwright pass rate: {summary['pass_rate']}% "
+        f"({summary['passed']} passed, {summary['executed'] - summary['passed']} failed or skipped)",
         "",
-        "| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | Kane Session | What Kane Saw | Selenium | Selenium Session | Overall |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        f"| Req ID | Acceptance Criterion | Scenario | Test Case | Kane Verify | Kane Session | What Kane Saw | {browser_cols} | Playwright | Session | Overall |",
+        f"|---|---|---|---|---|---|---|{browser_sep}|---|---|---|",
     ]
 
     for row in rows:
-        one_liner = row.get("kane_one_liner", "") or "-"
+        one_liner = row.get("kane_one_liner") or "—"
         kane_link = row.get("kane_session_link", "")
-        kane_session_cell = f"[session]({kane_link})" if kane_link else "-"
+        kane_cell = f"[session]({kane_link})" if kane_link else "—"
         sel_link = row.get("session_link", "")
-        sel_session_cell = f"[session]({sel_link})" if sel_link else "-"
-        selenium_result = row.get("selenium_result", "not_run")
+        sel_cell = f"[session]({sel_link})" if sel_link else "—"
+        per_browser = row.get("playwright_per_browser", {})
+        browser_cells = " | ".join(per_browser.get(b, "—") for b in all_browsers) if all_browsers else "—"
+        criterion = row["acceptance_criterion"]
         lines.append(
             f"| {row['requirement_id']} "
-            f"| {row['acceptance_criterion']} "
+            f"| {criterion} "
             f"| {row['scenario_id']} "
             f"| {row['test_case_id']} "
             f"| {row['kane_ai_result']} "
-            f"| {kane_session_cell} "
+            f"| {kane_cell} "
             f"| {one_liner} "
-            f"| {selenium_result} "
-            f"| {sel_session_cell} "
+            f"| {browser_cells} "
+            f"| {row['playwright_status']} "
+            f"| {sel_cell} "
             f"| {row['overall']} |"
         )
 
-    # Detail section: expand kane_steps and kane_summary for each requirement
+    # Kane AI detail section
     lines.extend(["", "## Kane AI Verification Detail", ""])
     for row in rows:
-        lines.append(f"### {row['requirement_id']} - {row['acceptance_criterion']}")
+        lines.append(f"### {row['requirement_id']} — {row['acceptance_criterion']}")
         if row.get("kane_one_liner"):
             lines.append(f"> {row['kane_one_liner']}")
         lines.append("")
@@ -308,37 +361,39 @@ def main():
             lines.append(f"**Full summary:** {row['kane_summary']}")
             lines.append("")
         if row.get("kane_session_link"):
-            lines.append(f"**TestMu AI session:** [{row['kane_session_link']}]({row['kane_session_link']})")
+            lines.append(
+                f"**Session:** [{row['kane_session_link']}]({row['kane_session_link']})"
+            )
             lines.append("")
 
-    # Only warn when Kane explicitly failed; not for pending/skipped/unknown
     kane_only_issues = [
-        row for row in rows
-        if row["selenium_result"] == "passed" and row["kane_ai_result"] == "failed"
+        r for r in rows
+        if r["playwright_status"] == "passed" and r["kane_ai_result"] == "failed"
     ]
     if kane_only_issues:
         lines.extend(["", "## Kane Analysis Warnings", ""])
-        lines.extend([
-            f"- {row['scenario_id']}: Kane analysis returned `failed` while Selenium passed."
-            for row in kane_only_issues
-        ])
+        for r in kane_only_issues:
+            lines.append(
+                f"- {r['scenario_id']}: Kane returned `failed` while Playwright passed."
+            )
 
     if summary["untested_requirements"]:
-        lines.extend(["", "## Untested Requirements", ""])
-        lines.extend([f"- {item}" for item in summary["untested_requirements"]])
+        lines.extend(["", "## No Execution Data", ""])
+        for item in summary["untested_requirements"]:
+            lines.append(f"- {item}: no Playwright execution data (data_unavailable)")
 
     if summary["failing_scenarios"]:
         lines.extend(["", "## Failing Scenarios", ""])
-        lines.extend([f"- {item}" for item in summary["failing_scenarios"]])
-
-    result_analysis = compute_result_analysis(rows, summary)
+        for item in summary["failing_scenarios"]:
+            lines.append(f"- {item}")
 
     lines.extend(["", "## Result Analysis", ""])
     lines.extend([
         f"- **Overall health:** {result_analysis['overall_health']}",
         f"- **Risk level:** {result_analysis['risk_level']}",
         f"- **Kane AI pass rate:** {result_analysis['kane_pass_rate']}%",
-        f"- **Selenium pass rate:** {result_analysis['selenium_pass_rate']}%",
+        f"- **Playwright pass rate:** {result_analysis['playwright_pass_rate']}%",
+        f"- **Browsers tested:** {', '.join(result_analysis['browsers_tested']) or 'none'}",
         "",
     ])
     if result_analysis["failed_requirements"]:
@@ -347,7 +402,7 @@ def main():
         lines.append("")
     lines.append("**Key findings:**")
     lines.extend([f"- {f}" for f in result_analysis["key_findings"]])
-    lines.extend(["", f"**Recommendation hint:** {result_analysis['recommendation_hint']}", ""])
+    lines.extend(["", f"**Recommendation:** {result_analysis['recommendation_hint']}", ""])
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -359,7 +414,10 @@ def main():
         encoding="utf-8",
     )
 
-    print(f"traceability_rows={len(rows)} pass_rate={pass_rate}")
+    print(
+        f"[traceability] rows={len(rows)} pass_rate={pass_rate}% "
+        f"browsers={all_browsers}"
+    )
 
 
 if __name__ == "__main__":
