@@ -34,6 +34,7 @@ jobs:
   analyze:
     name: Stage 1 · Analyze Requirements (Kane AI)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +75,7 @@ jobs:
     name: Stages 2-5 · Orchestrator
     needs: analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
@@ -100,6 +102,9 @@ jobs:
         env:
           LT_USERNAME: ${{ secrets.LT_USERNAME }}
           LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+          M365_USERNAME: ${{ secrets.M365_USERNAME }}
+          M365_PASSWORD: ${{ secrets.M365_PASSWORD }}
+          POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           FULL_RUN: ${{ inputs.full_run || 'true' }}
         run: python ci/agent.py
@@ -111,4 +116,4 @@ jobs:
           path: |
             reports/
             scenarios/scenarios.json
-            tests/selenium/test_products.py
+            tests/playwright/test_powerapps.py
