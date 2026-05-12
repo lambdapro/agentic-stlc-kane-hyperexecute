@@ -10,6 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
+
 
 def _kane_exe():
     """Return the kane-cli executable, resolving .cmd wrapper on Windows."""
@@ -221,6 +224,9 @@ def main():
     args = parse_args()
     demo_mode = args.demo_mode or os.environ.get("DEMO_MODE", "false").lower() == "true"
 
+    Path("reports").mkdir(exist_ok=True)
+    print_stage_header("1", "ANALYZE_REQUIREMENTS", "Parse requirements and run KaneAI functional verification")
+
     req_path = Path(args.requirements)
     criteria = []
     if req_path.is_dir():
@@ -296,7 +302,18 @@ def main():
 
     elapsed = time.time() - stage_start
     mode_label = "demo" if demo_mode else ("cached" if cache_hit else "live")
-    print(f"\n[Stage 1] COMPLETE — {len(analyzed)} criteria | {mode_label} | {elapsed:.1f}s")
+    passed_count = sum(1 for a in analyzed if a["kane_status"] == "passed")
+    failed_count = sum(1 for a in analyzed if a["kane_status"] == "failed")
+
+    print_stage_result("1", "ANALYZE_REQUIREMENTS", {
+        "Requirements parsed":  len(analyzed),
+        "Criteria analyzed":    f"{len(analyzed)} ({mode_label}, workers=5)",
+        "Kane passed":          f"{passed_count}/{len(analyzed)}",
+        "Kane failed":          failed_count,
+        "Pass rate":            f"{round(passed_count / len(analyzed) * 100, 1) if analyzed else 0}%",
+        "Duration":             f"{elapsed:.1f}s",
+        "Output":               args.output,
+    })
     emit_metrics("stage1_kane", elapsed, cache_hit=cache_hit, criteria_count=len(criteria))
 
 

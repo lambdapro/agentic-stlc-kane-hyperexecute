@@ -12,9 +12,13 @@ Writes: reports/normalized_results.json
 """
 import json
 import os
+import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
 
 DEBUG = os.environ.get("REPORT_DEBUG", "false").lower() == "true"
 
@@ -157,6 +161,7 @@ def _fn_matches(junit_name: str, fn_name: str) -> bool:
 
 
 def normalize():
+    print_stage_header("6a", "NORMALIZE_ARTIFACTS", "Consolidate conftest, JUnit, and HE API results")
     scenarios_by_id = _load_scenarios()
     conftest_results = _load_conftest_results()
     junit_results = _load_junit_results()
@@ -298,10 +303,16 @@ def normalize():
     passed = sum(1 for r in normalized if r["status"] == "passed")
     failed = sum(1 for r in normalized if r["status"] == "failed")
     unavailable = sum(1 for r in normalized if r["status"] == "data_unavailable")
-    print(
-        f"[normalize] {total} result(s): "
-        f"{passed} passed, {failed} failed, {unavailable} data_unavailable"
-    )
+    sources = {r.get("source", "none") for r in normalized}
+
+    print_stage_result("6a", "NORMALIZE_ARTIFACTS", {
+        "Results normalized":  total,
+        "Passed":              passed,
+        "Failed":              failed,
+        "Data unavailable":    unavailable,
+        "Sources used":        ", ".join(sorted(sources)),
+        "Output":              "reports/normalized_results.json",
+    })
     return out
 
 

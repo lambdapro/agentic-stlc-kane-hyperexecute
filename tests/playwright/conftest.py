@@ -150,7 +150,14 @@ def page(request):
         requirement_id = requirement_marker.args[0] if requirement_marker else "unknown"
 
         rep = getattr(request.node, "rep_call", None)
-        status = "passed" if (rep and rep.passed) else "failed"
+        if rep is None:
+            status = "unknown"
+        elif rep.passed:
+            status = "passed"
+        elif rep.skipped:
+            status = "skipped"
+        else:
+            status = "failed"
 
         error_message = None
         if rep and rep.failed and hasattr(rep, "longrepr"):

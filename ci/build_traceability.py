@@ -14,8 +14,12 @@ When data is missing: marks as "data_unavailable". Never fabricates values.
 import argparse
 import json
 import os
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
 
 DEBUG = os.environ.get("REPORT_DEBUG", "false").lower() == "true"
 
@@ -191,6 +195,8 @@ def compute_result_analysis(rows, summary, all_browsers):
 
 def main():
     args = parse_args()
+    print_stage_header("7", "TRACEABILITY_REPORT", "Build requirement → scenario → test → result matrix")
+    Path("reports").mkdir(exist_ok=True)
     requirements = load_json(args.requirements, [])
     scenarios = load_json(args.scenarios, [])
     manifest = load_json(args.manifest, {})
@@ -415,10 +421,16 @@ def main():
         encoding="utf-8",
     )
 
-    print(
-        f"[traceability] rows={len(rows)} pass_rate={pass_rate}% "
-        f"browsers={all_browsers}"
-    )
+    failing_count = summary.get("executed", 0) - summary.get("passed", 0)
+    print_stage_result("7", "TRACEABILITY_REPORT", {
+        "Requirements covered": f"{summary['requirements_covered']}/{summary['requirements_total']}",
+        "Pass rate":            f"{pass_rate}%",
+        "Passed":               summary.get("passed", 0),
+        "Failed":               failing_count,
+        "Untested":             len(summary.get("untested_requirements", [])),
+        "Browsers":             ", ".join(all_browsers) or "none",
+        "Output":               f"{args.out}, {args.json_out}",
+    })
 
 
 if __name__ == "__main__":

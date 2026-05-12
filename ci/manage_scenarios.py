@@ -1,7 +1,11 @@
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
 
 
 def parse_args():
@@ -85,6 +89,7 @@ def _fallback_expected(description):
 
 def main():
     args = parse_args()
+    print_stage_header("2", "MANAGE_SCENARIOS", "Sync scenarios.json with analyzed requirements")
     requirements = load_json(args.requirements, [])
     scenarios = load_json(args.scenarios, [])
     existing_by_requirement = {scenario["requirement_id"]: scenario for scenario in scenarios}
@@ -140,9 +145,14 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
 
-    print(
-        f"active={counts['active']} updated={counts['updated']} new={counts['new']} deprecated={counts['deprecated']}"
-    )
+    print_stage_result("2", "MANAGE_SCENARIOS", {
+        "Active":     counts["active"],
+        "Updated":    counts["updated"],
+        "New":        counts["new"],
+        "Deprecated": counts["deprecated"],
+        "Total":      len(updated),
+        "Output":     args.scenarios,
+    })
 
 
 if __name__ == "__main__":

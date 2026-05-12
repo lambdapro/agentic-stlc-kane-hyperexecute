@@ -1,6 +1,10 @@
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
 
 
 def parse_args():
@@ -22,9 +26,27 @@ def verdict_for(summary, result_analysis=None):
     return "RED", "Block release because pass rate or coverage is below the acceptance threshold."
 
 
+def _load_json(path, default=None):
+    p = Path(path)
+    if not p.exists():
+        print(f"[warn] {path} not found — using default", file=sys.stderr)
+        return default if default is not None else {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[ERROR] Failed to read {path}: {e}", file=sys.stderr)
+        return default if default is not None else {}
+
+
 def main():
     args = parse_args()
-    payload = json.loads(Path(args.trace_json).read_text(encoding="utf-8"))
+    print_stage_header("8", "RELEASE_RECOMMENDATION", "Compute GREEN/YELLOW/RED verdict from traceability matrix")
+    Path("reports").mkdir(exist_ok=True)
+
+    payload = _load_json(args.trace_json)
+    if not payload or "summary" not in payload:
+        print("[ERROR] traceability_matrix.json missing or has no summary — cannot compute verdict", file=sys.stderr)
+        sys.exit(1)
     summary = payload["summary"]
     result_analysis = payload.get("result_analysis", {})
     verdict, recommendation = verdict_for(summary, result_analysis)
@@ -67,7 +89,17 @@ def main():
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"{verdict}: {recommendation}")
+
+    print_stage_result("8", "RELEASE_RECOMMENDATION", {
+        "Verdict":      verdict,
+        "Pass rate":    f"{summary.get('pass_rate', 0)}%",
+        "Passed":       summary.get("passed", 0),
+        "Executed":     summary.get("executed", 0),
+        "Failing":      len(failing),
+        "Untested":     len(untested),
+        "Output":       args.out,
+    })
+    print(f"\n  → {verdict}: {recommendation}")
 
 
 if __name__ == "__main__":

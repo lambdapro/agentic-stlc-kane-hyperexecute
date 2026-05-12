@@ -17,7 +17,11 @@ Produces factual tables only. No first-person narration. No fabricated values.
 import json
 import os
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
 
 
 def load_json(path, default):
@@ -128,10 +132,38 @@ def main():
                 recommendation_line = line.strip()
 
     # ── Header ────────────────────────────────────────────────────────────────
-    emit("# Agentic STLC — Power Apps Pipeline Report")
+    print_stage_header("9", "GITHUB_SUMMARY", "Writing GitHub Actions step summary")
+    emit("# Agentic STLC — Pipeline Report")
     emit("")
     if run_url:
         emit(f"> **Run:** {run_url}")
+    emit("")
+
+    # ── Stage Status Table ────────────────────────────────────────────────────
+    kane_passed = sum(1 for r in requirements if r.get("kane_status") == "passed")
+    kane_total = len(requirements)
+    kane_status_icon = "✅" if kane_passed == kane_total else ("🟡" if kane_passed > 0 else "❌")
+    he_icon = "✅" if he_status in ("completed", "passed") else ("⚠️" if he_status == "unknown" else "❌")
+    verdict_icon = verdict_emoji(verdict_line)
+
+    emit("## Pipeline Stage Status")
+    emit("")
+    emit("| Stage | Name | Status | Details |")
+    emit("|-------|------|--------|---------|")
+    emit(f"| 1 | KaneAI Verification | {kane_status_icon} | {kane_passed}/{kane_total} passed |")
+    emit(f"| 2–4 | Scenarios + Test Gen + Selection | ✅ | {len([s for s in scenarios if s.get('status') != 'deprecated'])} active tests |")
+    emit(f"| 5 | HyperExecute Regression | {he_icon} | status: {he_status} |")
+    emit(f"| 6 | Result Aggregation | ✅ | {len(normalized)} results normalized |")
+    emit(f"| 7–8 | Traceability + Verdict | {verdict_icon} | {verdict_line} |")
+    emit("")
+
+    # ── Execution Links ────────────────────────────────────────────────────────
+    emit("## Execution Links")
+    emit("")
+    if he_job_link:
+        emit(f"- [HyperExecute Dashboard]({he_job_link})")
+    if run_url:
+        emit(f"- [GitHub Actions Run]({run_url})")
     emit("")
 
     # ── Stage 1: Kane AI Requirement Analysis ─────────────────────────────────
@@ -381,6 +413,17 @@ def main():
     if run_url:
         emit(f"- Full run details: {run_url}")
     emit("")
+
+
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    summary_len = len(Path(summary_path).read_text(encoding="utf-8")) if summary_path and Path(summary_path).exists() else 0
+    print_stage_result("9", "GITHUB_SUMMARY", {
+        "Sections":       "stage-status, kane-results, playwright-results, traceability, verdict",
+        "Verdict":        verdict_line,
+        "HE dashboard":   he_job_link or "N/A",
+        "Summary size":   f"{summary_len:,} chars" if summary_len else "stdout only",
+        "Output":         summary_path or "stdout",
+    })
 
 
 if __name__ == "__main__":

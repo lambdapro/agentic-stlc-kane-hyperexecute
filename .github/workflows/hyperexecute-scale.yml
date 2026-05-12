@@ -55,6 +55,9 @@ jobs:
           name: analyzed-requirements
           path: requirements
 
+      - name: Ensure reports directory exists
+        run: mkdir -p reports
+
       - name: Generate test selection
         env:
           FULL_RUN: ${{ inputs.full_run || 'true' }}
@@ -69,6 +72,12 @@ jobs:
         run: |
           curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
           chmod +x hyperexecute
+          if ! file hyperexecute | grep -q "ELF"; then
+            echo "ERROR: HyperExecute binary is not a valid ELF executable"
+            head -c 500 hyperexecute
+            exit 1
+          fi
+          ./hyperexecute --version
 
       - name: Submit to HyperExecute
         env:
@@ -78,7 +87,7 @@ jobs:
           M365_PASSWORD: ${{ secrets.M365_PASSWORD }}
           POWERAPPS_URL: ${{ secrets.POWERAPPS_URL }}
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        run: python ci/agent.py --stages hyperexecute
+        run: python ci/agent.py
 
       - uses: actions/upload-artifact@v4
         if: always()

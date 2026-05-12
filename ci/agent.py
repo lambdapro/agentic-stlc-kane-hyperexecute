@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """
-Agentic STLC Orchestrator — Stages 2-5.
+Agentic STLC Orchestrator — Stages 2-7.
 Fully deterministic: no LLM required.
 """
 import asyncio
 import json
 import os
+import py_compile
 import re
 import subprocess
+import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 from mcp import ClientSession
 from mcp.client.sse import sse_client
+
+sys.path.insert(0, str(Path(__file__).parent))
+from stage_utils import print_stage_header, print_stage_result
 
 # ── Runtime config ─────────────────────────────────────────────────────────
 MCP_URL           = "https://mcp.lambdatest.com/mcp"
@@ -30,6 +36,7 @@ BUILD_NAME        = (
 )
 
 JOB_ID_RE = re.compile(r"jobId=([\w-]+)")
+_TERMINAL_HE_STATUSES = {"completed", "passed", "failed", "error", "aborted", "cancelled"}
 
 # ── Deterministic test generation ──────────────────────────────────────────
 def _derive_fn_name(sc_id: str, title: str) -> str:
@@ -252,6 +259,17 @@ def generate_tests(scenarios: list) -> None:
     print(f"[generate_tests] wrote {len(active)} test(s)")
 
 
+def validate_generated_tests(test_file: str = "tests/playwright/test_powerapps.py") -> bool:
+    """Validate generated Playwright test file has valid Python syntax."""
+    try:
+        py_compile.compile(test_file, doraise=True)
+        print(f"[validate_tests] {test_file} — syntax OK")
+        return True
+    except py_compile.PyCompileError as e:
+        print(f"[validate_tests] SYNTAX ERROR in {test_file}: {e}", file=sys.stderr)
+        return False
+
+
 # ── Stage 4: Write test selection ──────────────────────────────────────────
 def write_test_selection(scenarios: list) -> list:
     if FULL_RUN:
@@ -279,42 +297,57 @@ def write_test_selection(scenarios: list) -> list:
     return selected
 
 
+def validate_test_selection(selection_file: str = "reports/pytest_selection.txt") -> bool:
+    """Validate test selection file exists and is non-empty."""
+    p = Path(selection_file)
+    if not p.exists():
+        print(f"[validate_selection] {selection_file} does not exist", file=sys.stderr)
+        return False
+    lines = [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    if not lines:
+        print(f"[validate_selection] {selection_file} is empty — no tests to run", file=sys.stderr)
+        return False
+    print(f"[validate_selection] {len(lines)} test node(s) queued")
+    return True
+
+
 # ── Stage 5: Run HyperExecute ──────────────────────────────────────────────
 def run_hyperexecute() -> str:
-    import sys
     # On Windows the binary ships as hyperexecute.exe; on Linux it has no extension.
     cli = "hyperexecute.exe" if sys.platform == "win32" else "./hyperexecute"
     cwd = Path(".").resolve()
     print(f"[hyperexecute] cwd={cwd}  platform={sys.platform}  binary_exists={Path(cli).exists()}")
 
     if not Path(cli).exists():
-        print("[hyperexecute] binary not found — skipping")
+        print("[hyperexecute] binary not found — skipping HyperExecute stage")
         return ""
 
     if not LT_USERNAME or not LT_ACCESS_KEY:
-        print("[hyperexecute] LT credentials missing — skipping")
+        print("[hyperexecute] LT credentials missing — skipping HyperExecute stage")
         return ""
 
-    # Show selection size before submitting
+    # Validate test selection before submitting
+    if not validate_test_selection():
+        print("[hyperexecute] aborting — no tests to run")
+        return ""
+
     sel_path = Path("reports/pytest_selection.txt")
-    if sel_path.exists():
-        lines = [l.strip() for l in sel_path.read_text().splitlines() if l.strip()]
-        print(f"[hyperexecute] test selection: {len(lines)} test(s)")
-        for line in lines:
-            print(f"  {line}")
-    else:
-        print("[hyperexecute] WARNING: reports/pytest_selection.txt not found")
+    lines = [l.strip() for l in sel_path.read_text().splitlines() if l.strip()]
+    print(f"[hyperexecute] submitting {len(lines)} test(s):")
+    for line in lines:
+        print(f"  {line}")
 
     cmd = [cli, "--user", LT_USERNAME, "--key", LT_ACCESS_KEY, "--config", "hyperexecute.yaml"]
     print(f"[hyperexecute] starting — cmd: {' '.join(cmd[:3])} ...")
+    t0 = time.monotonic()
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    elapsed = round(time.monotonic() - t0, 1)
     combined = result.stdout + result.stderr
 
     Path("reports").mkdir(exist_ok=True)
     Path("reports/hyperexecute-cli.log").write_text(combined, encoding="utf-8")
-    print(f"[hyperexecute] exit_code={result.returncode}  output_lines={len(combined.splitlines())}")
+    print(f"[hyperexecute] exit_code={result.returncode}  duration={elapsed}s  output_lines={len(combined.splitlines())}")
     if combined.strip():
-        # Print first 30 lines of output for visibility
         for line in combined.splitlines()[:30]:
             print(f"  {line}")
 
@@ -395,7 +428,6 @@ async def _fetch_automation_sessions_by_build(client: httpx.AsyncClient, build_n
     Fall back to LambdaTest Automation API: find the build by name and return its sessions.
     conftest.py sets build=BUILD_NAME, so the build should be searchable by that exact name.
     """
-    # Search for the build; also try a broad "Agentic STLC" search if exact match fails
     build_id = None
     for search in (build_name, "Agentic STLC"):
         resp = await client.get(
@@ -408,7 +440,6 @@ async def _fetch_automation_sessions_by_build(client: httpx.AsyncClient, build_n
             continue
         builds = resp.json().get("data", [])
         print(f"[automation] {len(builds)} build(s) for search={search!r}")
-        # Pick first build whose name contains the expected run number/date
         for b in builds:
             name = b.get("name", "")
             if build_name in name or search == "Agentic STLC":
@@ -474,8 +505,7 @@ async def fetch_and_save_mcp_results(job_id: str) -> None:
             async with ClientSession(read, write) as session:
                 await session.initialize()
 
-                # Poll until job is no longer running (max 15 min)
-                # Response structure: { "jobInfo": { "status": "...", ... } }
+                # Poll until job reaches a terminal status (max 15 min)
                 job_data: dict = {}
                 job_inner: dict = {}
                 for attempt in range(30):
@@ -487,14 +517,16 @@ async def fetch_and_save_mcp_results(job_id: str) -> None:
                     except (json.JSONDecodeError, AttributeError):
                         job_inner = {}
                     status = job_inner.get("status", "unknown")
-                    print(f"[mcp] attempt {attempt+1} — job status: {status}")
+                    print(f"[mcp] attempt {attempt+1}/30 — job status: {status}")
+                    if status in _TERMINAL_HE_STATUSES:
+                        print(f"[mcp] terminal status reached: {status}")
+                        break
                     if status not in ("running", "initiated", "queued"):
+                        print(f"[mcp] unknown status '{status}' — stopping poll")
                         break
                     await asyncio.sleep(30)
 
-                # Fetch per-test results from HyperExecute sessions API using job_id
                 he_tasks = await _fetch_he_sessions(job_id)
-
                 _write_api_details(job_inner, he_tasks, job_id)
 
     except Exception as exc:
@@ -576,16 +608,23 @@ def write_recommendation(he_tasks: list, requirements_total: int) -> None:
 
 
 # ── Post-pipeline: deterministic CI report scripts ─────────────────────────
+_CRITICAL_SCRIPTS = [
+    "ci/normalize_artifacts.py",
+    "ci/build_traceability.py",
+    "ci/release_recommendation.py",
+    "ci/write_github_summary.py",
+]
+_ADVISORY_SCRIPTS = [
+    "ci/validate_report.py",
+    "ci/pipeline_metrics.py",
+]
+
+
 def post_pipeline() -> None:
-    # Order matters: normalize → validate → traceability → release → summary
-    scripts = [
-        "ci/normalize_artifacts.py",
-        "ci/validate_report.py",
-        "ci/build_traceability.py",
-        "ci/release_recommendation.py",
-        "ci/write_github_summary.py",
-    ]
-    for script in scripts:
+    """Run post-pipeline scripts. Exits non-zero if any critical script fails."""
+    failed_critical = []
+
+    for script in _CRITICAL_SCRIPTS:
         print(f"\n[post-pipeline] running {script} ...")
         result = subprocess.run(
             ["python", script],
@@ -594,45 +633,142 @@ def post_pipeline() -> None:
         if result.stdout:
             print(result.stdout.strip())
         if result.returncode != 0:
-            print(f"[WARNING] {script} exited {result.returncode}")
+            print(f"[ERROR] Critical script failed: {script} (exit {result.returncode})", file=sys.stderr)
             if result.stderr:
-                print(result.stderr[:800])
+                print(result.stderr[:800], file=sys.stderr)
+            failed_critical.append(script)
         else:
             print(f"[post-pipeline] {script} ok")
+
+    for script in _ADVISORY_SCRIPTS:
+        print(f"\n[post-pipeline] running {script} ...")
+        result = subprocess.run(
+            ["python", script],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+        if result.stdout:
+            print(result.stdout.strip())
+        if result.returncode != 0:
+            print(f"[warn] Advisory script failed: {script} (exit {result.returncode})")
+            if result.stderr:
+                print(result.stderr[:400])
+        else:
+            print(f"[post-pipeline] {script} ok")
+
+    if failed_critical:
+        print(
+            f"\n[PIPELINE] {len(failed_critical)} critical script(s) failed: "
+            + ", ".join(failed_critical),
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
 async def main() -> None:
+    Path("reports").mkdir(exist_ok=True)
+    t_pipeline_start = time.monotonic()
     print(f"[pipeline] starting — FULL_RUN={FULL_RUN}  BUILD={BUILD_NAME}")
 
-    # Stage 2: Sync scenarios
+    # ── Stage 2: Sync scenarios ────────────────────────────────────────────
+    print_stage_header("2", "MANAGE_SCENARIOS", "Sync scenarios.json with analyzed requirements")
     req_path = Path("requirements/analyzed_requirements.json")
+    if not req_path.exists():
+        print(f"[ERROR] {req_path} not found — run Stage 1 first", file=sys.stderr)
+        sys.exit(1)
     requirements = json.loads(req_path.read_text(encoding="utf-8"))
     sc_path  = Path("scenarios/scenarios.json")
     existing = json.loads(sc_path.read_text(encoding="utf-8")) if sc_path.exists() else []
     scenarios = sync_scenarios(requirements, existing)
     sc_path.write_text(json.dumps(scenarios, indent=2), encoding="utf-8")
-    counts = {s: sum(1 for x in scenarios if x["status"] == s) for s in ("new", "updated", "active", "deprecated")}
-    print(f"[scenarios] {counts}")
 
-    # Stage 3: Generate tests (also stamps function_name onto each scenario)
+    counts = {s: sum(1 for x in scenarios if x["status"] == s)
+              for s in ("new", "updated", "active", "deprecated")}
+    print_stage_result("2", "MANAGE_SCENARIOS", {
+        "Active":     counts["active"],
+        "Updated":    counts["updated"],
+        "New":        counts["new"],
+        "Deprecated": counts["deprecated"],
+        "Total":      len(scenarios),
+        "Output":     "scenarios/scenarios.json",
+    })
+
+    # ── Stage 3: Generate tests ────────────────────────────────────────────
+    print_stage_header("3", "GENERATE_TESTS", "Generate Playwright test file from scenarios")
     generate_tests(scenarios)
-
     # Persist scenarios.json with function_name now set
     sc_path.write_text(json.dumps(scenarios, indent=2), encoding="utf-8")
 
-    # Stage 4: Write test selection
-    write_test_selection(scenarios)
+    active_count = sum(1 for s in scenarios if s["status"] != "deprecated")
+    syntax_ok = validate_generated_tests()
+    if not syntax_ok:
+        print("[PIPELINE] Generated test file has syntax errors — aborting", file=sys.stderr)
+        sys.exit(1)
 
-    # Stage 5: Run HyperExecute
+    print_stage_result("3", "GENERATE_TESTS", {
+        "Tests generated": active_count,
+        "Syntax":          "VALID",
+        "Output":          "tests/playwright/test_powerapps.py",
+        "Objectives":      "kane/objectives.json",
+    })
+
+    # ── Stage 4: Write test selection ──────────────────────────────────────
+    print_stage_header("4", "SELECT_TESTS", f"Build test manifest ({'full' if FULL_RUN else 'incremental'} run)")
+    selected = write_test_selection(scenarios)
+    excluded = [s for s in scenarios if s["status"] == "deprecated"]
+    run_type = "full" if FULL_RUN else "incremental"
+
+    print_stage_result("4", "SELECT_TESTS", {
+        "Run type":  run_type,
+        "Selected":  f"{len(selected)} scenarios ({len(selected)} test nodes)",
+        "Excluded":  f"{len(excluded)} (deprecated)",
+        "Output":    "reports/pytest_selection.txt, reports/test_execution_manifest.json",
+    })
+
+    # ── Stage 5: Run HyperExecute ──────────────────────────────────────────
+    print_stage_header("5", "HYPEREXECUTE", "Submit tests to LambdaTest HyperExecute")
+    t5_start = time.monotonic()
     job_id = run_hyperexecute()
+    t5_elapsed = round(time.monotonic() - t5_start, 1)
 
-    # Stage 6: Fetch MCP results → reports/api_details.json
+    he_link = (
+        f"https://hyperexecute.lambdatest.com/hyperexecute/task?jobId={job_id}"
+        if job_id else "N/A (skipped)"
+    )
+    print_stage_result("5", "HYPEREXECUTE", {
+        "Job ID":       job_id or "N/A",
+        "Concurrency":  "5 VMs",
+        "Tests":        f"{len(selected)} submitted",
+        "Duration":     f"{t5_elapsed}s",
+        "Dashboard":    he_link,
+    }, success=bool(job_id) or not LT_USERNAME)
+
+    # ── Stage 6: Fetch MCP results ─────────────────────────────────────────
+    print_stage_header("6", "FETCH_RESULTS", "Fetch session results via MCP + LambdaTest API")
     await fetch_and_save_mcp_results(job_id)
 
-    # Stage 7: Normalize artifacts → validate → traceability → release → summary
+    api_details = json.loads(Path("reports/api_details.json").read_text(encoding="utf-8"))
+    session_count = len(api_details.get("he_tasks", []))
+    print_stage_result("6", "FETCH_RESULTS", {
+        "Sessions found": session_count,
+        "Job status":     api_details.get("he_summary", {}).get("status", "unknown"),
+        "Output":         "reports/api_details.json",
+    })
+
+    # ── Stage 7: Post-pipeline (normalize → validate → traceability → release → summary)
+    print_stage_header("7", "POST_PIPELINE", "Normalize artifacts, build traceability, generate verdict")
     post_pipeline()
-    print("\n[pipeline] complete")
+
+    total_elapsed = round(time.monotonic() - t_pipeline_start, 1)
+    print_stage_result("7", "POST_PIPELINE", {
+        "Scripts run":     f"{len(_CRITICAL_SCRIPTS)} critical + {len(_ADVISORY_SCRIPTS)} advisory",
+        "Total duration":  f"{total_elapsed}s",
+        "Traceability":    "reports/traceability_matrix.{md,json}",
+        "Verdict":         "reports/release_recommendation.md",
+        "Summary":         "GitHub Actions Step Summary",
+    })
+
+    print(f"\n[pipeline] complete — total elapsed {total_elapsed}s")
 
 
 if __name__ == "__main__":

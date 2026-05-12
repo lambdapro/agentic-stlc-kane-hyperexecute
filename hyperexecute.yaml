@@ -26,6 +26,7 @@ cacheDirectories:
   - ~/.cache/ms-playwright
 
 pre:
+  - mkdir -p reports
   - pip install --cache-dir .pip_cache -r requirements.txt
   - playwright install chromium firefox webkit
 
@@ -38,9 +39,10 @@ testDiscovery:
   mode: dynamic
   command: cat reports/pytest_selection.txt
 
-# Per-browser JUnit files (junit-chrome.xml, junit-firefox.xml, …) are picked up
-# by normalize_artifacts.py during Stage 7 traceability building.
-testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --html=reports/report-${BROWSER}.html --junitxml=reports/junit-${BROWSER}.xml
+# Fixed report filenames — ${BROWSER} is NOT a HyperExecute-injected variable.
+# Browser-level results come from conftest.py writing reports/kane_result_SC-*_<browser>.json
+# per test per browser. normalize_artifacts.py reads those as Priority 1 source.
+testRunnerCommand: PYTHONPATH=. pytest "$test" -v --tb=short -s --html=reports/report.html --junitxml=reports/junit.xml
 
 mergeArtifacts: true
 uploadArtefacts:

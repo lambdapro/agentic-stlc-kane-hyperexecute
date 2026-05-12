@@ -38,29 +38,63 @@ jobs:
 
       - name: Parse requirements and generate artifact map
         run: |
-          python -c "
+          mkdir -p reports
+          python - <<'PYEOF'
           import sys, json
           from pathlib import Path
           sys.path.insert(0, 'ci')
           from analyze_requirements import extract_acceptance_criteria
 
           results = []
-          for req_file in sorted(Path('requirements').glob('*.txt')):
-              criteria = extract_acceptance_criteria(req_file.read_text())
+          req_files = sorted(Path('requirements').glob('*.txt'))
+          for req_file in req_files:
+              criteria = extract_acceptance_criteria(req_file.read_text(encoding='utf-8'))
               for i, ac in enumerate(criteria, start=1):
                   results.append({'file': req_file.name, 'index': i, 'criterion': ac})
 
-          print(json.dumps(results, indent=2))
-          print(f'\nTotal: {len(results)} acceptance criteria across {len(list(Path(\"requirements\").glob(\"*.txt\")))} file(s)')
-          " | tee reports/requirements_parse_preview.json
+          # Write JSON to file directly (not via tee — avoids mixed content in artifact)
+          output = Path('reports/requirements_parse_preview.json')
+          output.write_text(json.dumps(results, indent=2), encoding='utf-8')
 
-      - name: Compute requirements hash
+          print(f"Parsed {len(results)} acceptance criteria from {len(req_files)} file(s)")
+          for r in results:
+              print(f"  [{r['file']}] AC-{r['index']:03d}: {r['criterion'][:80]}")
+
+          if not results:
+              print("ERROR: No acceptance criteria found — check requirements/*.txt format", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+
+      - name: Compute and export requirements hash
+        id: req-hash
         run: |
-          HASH=\$(sha256sum requirements/*.txt | sha256sum | cut -c1-16)
-          echo "Requirements hash: \$HASH"
+          HASH=$(sha256sum requirements/*.txt | sha256sum | cut -c1-16)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Requirements hash: $HASH"
           echo "Use this as the Kane cache key when running the full pipeline."
 
+      - name: Validate parsed output
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          from pathlib import Path
+          p = Path('reports/requirements_parse_preview.json')
+          if not p.exists():
+              print("ERROR: requirements_parse_preview.json was not created", file=sys.stderr)
+              sys.exit(1)
+          try:
+              data = json.loads(p.read_text(encoding='utf-8'))
+          except json.JSONDecodeError as e:
+              print(f"ERROR: Output file is not valid JSON: {e}", file=sys.stderr)
+              sys.exit(1)
+          if not isinstance(data, list) or len(data) == 0:
+              print("ERROR: Parse output is empty — no acceptance criteria found", file=sys.stderr)
+              sys.exit(1)
+          print(f"Validation passed: {len(data)} criteria, valid JSON")
+          PYEOF
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: requirements-preview
           path: reports/requirements_parse_preview.json

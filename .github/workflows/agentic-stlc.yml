@@ -98,10 +98,22 @@ jobs:
         if: env.DEMO_MODE == 'true'
         run: python ci/analyze_requirements.py --demo-mode
 
-      # Cache hit: requirements unchanged — skip live Kane calls
+      # Cache hit: requirements unchanged — validate cached artifact then skip live calls
       - name: Run KaneAI (cache hit — requirements unchanged)
         if: steps.kane-cache.outputs.cache-hit == 'true' && env.DEMO_MODE != 'true'
-        run: echo "CACHE HIT — reusing Kane results (requirements unchanged)"
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          from pathlib import Path
+          p = Path('requirements/analyzed_requirements.json')
+          if not p.exists() or not p.stat().st_size:
+              print("Cached artifact missing or empty — re-run will fall through to live Kane")
+              sys.exit(1)
+          data = json.loads(p.read_text(encoding='utf-8'))
+          passed = sum(1 for r in data if r.get('kane_status') == 'passed')
+          print(f"CACHE HIT — reusing Kane results ({len(data)} requirements, {passed} passed)")
+          PYEOF
+        continue-on-error: true
 
       # Cache miss: run live KaneAI verification
       - name: Run KaneAI (live verification)
@@ -145,15 +157,43 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
 
+      - name: Ensure reports directory exists
+        run: mkdir -p reports
+
       - uses: actions/download-artifact@v4
         with:
           name: analyzed-requirements
           path: requirements
 
+      - name: Validate Stage 1 artifact
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          from pathlib import Path
+          p = Path('requirements/analyzed_requirements.json')
+          if not p.exists():
+              print("ERROR: analyzed_requirements.json not found after download", file=sys.stderr)
+              sys.exit(1)
+          try:
+              data = json.loads(p.read_text(encoding='utf-8'))
+              assert isinstance(data, list) and len(data) > 0, "Artifact is empty"
+              passed = sum(1 for r in data if r.get('kane_status') == 'passed')
+              print(f"Stage 1 artifact valid: {len(data)} requirements, {passed} passed")
+          except Exception as e:
+              print(f"ERROR: Invalid Stage 1 artifact: {e}", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+
       - name: Download HyperExecute CLI
         run: |
           curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
           chmod +x hyperexecute
+          if ! file hyperexecute | grep -q "ELF"; then
+            echo "ERROR: HyperExecute binary is not a valid ELF executable (possible 404)"
+            head -c 500 hyperexecute
+            exit 1
+          fi
+          ./hyperexecute --version
 
       - name: Run orchestrator (Stages 2-7)
         env:
