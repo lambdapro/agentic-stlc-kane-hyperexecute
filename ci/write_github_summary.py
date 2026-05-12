@@ -398,6 +398,161 @@ def main():
                 emit(f"- ⚠️ {w}")
         emit("")
 
+    # ── Coverage Analysis ──────────────────────────────────────────────────────
+    coverage_data = load_json("reports/coverage_report.json", {})
+    if coverage_data:
+        cov_sum  = coverage_data.get("summary", {})
+        cov_reqs = coverage_data.get("requirements", [])
+        feat_rollup = coverage_data.get("feature_rollup", [])
+
+        emit("## Requirement Coverage Analysis")
+        emit("")
+        emit("| Metric | Value |")
+        emit("|--------|-------|")
+        emit(f"| Total Requirements | {cov_sum.get('total_requirements', '?')} |")
+        emit(f"| Fully Covered | {cov_sum.get('covered_full', 0)} "
+             f"({cov_sum.get('coverage_pct', 0)}%) |")
+        emit(f"| Partially Covered | {cov_sum.get('covered_partial', 0)} |")
+        emit(f"| Uncovered | {cov_sum.get('uncovered', 0)} |")
+        emit(f"| Negative Test Coverage | {cov_sum.get('negative_coverage_pct', 0)}% |")
+        emit(f"| Mobile Coverage | {cov_sum.get('mobile_coverage_pct', 0)}% |")
+        emit(f"| Android Coverage | {cov_sum.get('android_coverage_pct', 0)}% |")
+        emit(f"| HyperExecute Coverage | {cov_sum.get('he_coverage_pct', 0)}% |")
+        emit(f"| Flaky Requirements | {cov_sum.get('flaky_count', 0)} |")
+        emit(f"| High-Risk Requirements | {cov_sum.get('high_risk_count', 0)} |")
+        emit(f"| Missing Scenario Types | {cov_sum.get('missing_scenario_types', 0)} |")
+        emit("")
+
+        # Per-requirement coverage table
+        emit("### Requirement Coverage Detail")
+        emit("")
+        emit("| Requirement | Coverage | Tests | Pass | Fail | Missing | Risk |")
+        emit("|-------------|----------|-------|------|------|---------|------|")
+        for r in cov_reqs:
+            es = r.get("execution_status", {})
+            cov_icon = {"FULL": "✅", "PARTIAL": "🟡", "NONE": "❌"}.get(r.get("coverage_status", "NONE"), "❓")
+            risk_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(r.get("risk_level", ""), "⚪")
+            emit(
+                f"| `{r.get('requirement_id', '?')}` | {cov_icon} {r.get('coverage_status', 'NONE')} "
+                f"| {es.get('total', 0)} | {es.get('passed', 0)} | {es.get('failed', 0)} "
+                f"| {len(r.get('missing_scenarios', []))} | {risk_icon} {r.get('risk_level', '?')} |"
+            )
+        emit("")
+
+        # Feature heatmap
+        if feat_rollup:
+            emit("### Feature Coverage Heatmap")
+            emit("")
+            emit("| Feature | Criticality | Total | Covered | Partial | Uncovered |")
+            emit("|---------|-------------|-------|---------|---------|-----------|")
+            for f in feat_rollup:
+                crit_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(f.get("criticality", ""), "⚪")
+                emit(
+                    f"| {f['feature']} | {crit_icon} {f['criticality']} "
+                    f"| {f['total']} | {f['covered']} | {f['partial']} | {f['none']} |"
+                )
+            emit("")
+
+        # Missing scenarios
+        missing_data = load_json("reports/missing_scenarios.json", {})
+        missing_list = missing_data.get("missing", [])
+        if missing_list:
+            emit("### Missing Scenario Types (Coverage Gaps)")
+            emit("")
+            for m in missing_list:
+                req_id = m.get("requirement_id", "?")
+                feat   = m.get("feature", "?")
+                crit   = m.get("criticality", "?")
+                emit(f"**`{req_id}`** — {feat} (criticality: {crit})")
+                for ms in m.get("missing", []):
+                    type_badge = {"negative": "🔴 NEGATIVE", "edge_case": "🟡 EDGE",
+                                  "happy_path": "🟢 HAPPY"}.get(ms["type"], ms["type"].upper())
+                    emit(f"- `[{type_badge}]` {ms['description']}")
+                emit("")
+
+        # Flaky requirements
+        flaky_data = load_json("reports/flaky_requirements.json", {})
+        flaky_list = flaky_data.get("flaky", [])
+        if flaky_list:
+            emit("### Flaky Requirements")
+            emit("")
+            for f in flaky_list:
+                emit(f"- ⚠️ `{f['requirement_id']}` ({f['feature']}) — "
+                     f"{f['retry_count']} retries  scenarios: {', '.join(f['scenarios'])}")
+            emit("")
+
+    # ── Quality Gates ──────────────────────────────────────────────────────────
+    qg_data = load_json("reports/quality_gates.json", {})
+    if qg_data:
+        gates_passed = qg_data.get("gates_passed", True)
+        qg_icon = "✅" if gates_passed else "❌"
+        emit("## Quality Gates")
+        emit("")
+        emit(f"**Overall: {qg_icon} {'PASSED' if gates_passed else 'FAILED'}**  "
+             f"({qg_data.get('critical_failures', 0)} critical failures, "
+             f"{qg_data.get('warnings', 0)} warnings)")
+        emit("")
+        emit("| Gate | Severity | Status | Actual | Threshold |")
+        emit("|------|----------|--------|--------|-----------|")
+        for g in qg_data.get("gates", []):
+            g_icon = "✅" if g["passed"] else ("❌" if g["severity"] == "CRITICAL" else "⚠️")
+            sev_icon = "🔴" if g["severity"] == "CRITICAL" else "🟡"
+            emit(
+                f"| {g['gate']} | {sev_icon} {g['severity']} | {g_icon} "
+                f"| {g['actual']} {g.get('unit', '')} | {g['threshold']} {g.get('unit', '')} |"
+            )
+        emit("")
+
+    # ── Impact Analysis ────────────────────────────────────────────────────────
+    impact_data = load_json("reports/impacted_requirements.json", {})
+    if impact_data and impact_data.get("changed_file_count", 0) > 0:
+        max_impact = impact_data.get("max_impact", "NONE")
+        impact_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}.get(max_impact, "⚪")
+        emit("## Change Impact Analysis")
+        emit("")
+        emit(f"**{len(impact_data.get('changed_files', []))} file(s) changed — "
+             f"max impact: {impact_icon} {max_impact}**")
+        emit("")
+        emit(f"> {impact_data.get('recommendation', '')}")
+        emit("")
+        impacted_reqs = impact_data.get("impacted_requirements", [])
+        if impacted_reqs:
+            emit(f"**{len(impacted_reqs)} requirement(s) impacted:** "
+                 + ", ".join(f"`{r}`" for r in impacted_reqs[:10])
+                 + ("..." if len(impacted_reqs) > 10 else ""))
+            emit("")
+        impacted_feats = impact_data.get("impacted_features", [])
+        if impacted_feats:
+            emit(f"**Features affected:** {', '.join(impacted_feats)}")
+            emit("")
+
+    # ── RCA — Root Cause Analysis ──────────────────────────────────────────────
+    rca_data = load_json("reports/rca_report.json", {})
+    if rca_data and rca_data.get("total_failed", 0) > 0:
+        emit("## Root Cause Analysis — Failed Tests")
+        emit("")
+        if rca_data.get("skipped_no_creds"):
+            emit("> ⚠️ RCA skipped — `LT_USERNAME` / `LT_ACCESS_KEY` not set.")
+            emit("> Configure these secrets to enable LambdaTest AI root cause analysis.")
+            emit("")
+        else:
+            emit(f"**{rca_data['total_failed']} failed test(s) — "
+                 f"{rca_data.get('rca_fetched', 0)} RCA analyses retrieved**")
+            emit("")
+            for a in rca_data.get("analyses", []):
+                sc_id   = a.get("scenario_id", "?")
+                req_id  = a.get("requirement_id", "?")
+                browser = a.get("browser", "?")
+                link    = a.get("session_link", "")
+                rca     = a.get("root_cause", "N/A")
+                ctx     = a.get("kane_context", {})
+                session_md = f"[session]({link})" if link else "—"
+                emit(f"**❌ `{sc_id}` / `{req_id}` — {browser}** — {session_md}")
+                if ctx.get("acceptance_criterion"):
+                    emit(f"> _{ctx['acceptance_criterion']}_")
+                emit(f"> **Root Cause:** {rca[:300]}")
+                emit("")
+
     # ── Release Recommendation ─────────────────────────────────────────────────
     emit("## Release Recommendation")
     emit("")

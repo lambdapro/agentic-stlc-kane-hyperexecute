@@ -21,6 +21,41 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from stage_utils import print_stage_header, print_stage_result
 
+# ── Feature + coverage-category metadata (imported from coverage_analysis) ───
+_FEATURE_KEYWORDS: dict[str, list[str]] = {
+    "SEARCH":         ["search", "find product", "search bar", "search result"],
+    "CART":           ["cart", "add to cart", "shopping cart", "remove from cart",
+                       "update quantity", "cart item", "line total"],
+    "CATALOG":        ["catalog", "laptops", "product listing", "browse", "category", "grid"],
+    "FILTER":         ["filter", "manufacturer", "brand filter", "narrow", "sidebar"],
+    "PRODUCT_DETAIL": ["product detail", "detail page", "product name", "price", "thumbnail"],
+    "GUEST":          ["guest", "without logging in", "guest browsing"],
+    "AUTH":           ["register", "log in", "login", "log out", "logout",
+                       "account", "first name", "telephone", "password", "dashboard"],
+    "CHECKOUT":       ["checkout", "shipping", "flat rate", "shipping address"],
+    "WISHLIST":       ["wish list", "wishlist"],
+    "SORT":           ["sort", "price low to high", "listing order"],
+}
+_FEATURE_CRITICALITY: dict[str, str] = {
+    "AUTH": "HIGH", "CHECKOUT": "HIGH", "CART": "HIGH",
+    "SEARCH": "MEDIUM", "CATALOG": "MEDIUM", "PRODUCT_DETAIL": "MEDIUM",
+    "FILTER": "LOW", "SORT": "LOW", "WISHLIST": "LOW", "GUEST": "LOW",
+}
+_NEGATIVE_KW = frozenset(["invalid", "error", "fail", "reject", "empty", "remove",
+                           "delete", "cannot", "unauthorized", "no results"])
+_EDGE_KW     = frozenset(["empty cart", "zero", "boundary", "duplicate", "persistence"])
+_MOBILE_BR   = frozenset(["android", "ios", "safari_mobile", "mobile"])
+
+
+def _classify_feature(text: str) -> str:
+    text_lower = text.lower()
+    best, best_n = "GENERAL", 0
+    for feat, kws in _FEATURE_KEYWORDS.items():
+        n = sum(1 for kw in kws if kw in text_lower)
+        if n > best_n:
+            best_n, best = n, feat
+    return best
+
 DEBUG = os.environ.get("REPORT_DEBUG", "false").lower() == "true"
 
 
@@ -279,12 +314,32 @@ def main():
             f"overall={overall} browsers={per_browser}"
         )
 
+        # Feature + coverage-category annotation
+        description = req.get("description", "")
+        feature      = _classify_feature(description)
+        criticality  = _FEATURE_CRITICALITY.get(feature, "MEDIUM")
+        combined_txt = description.lower()
+        browsers_run = {r.get("browser", "") for r in browser_records
+                        if r.get("status") not in ("data_unavailable", None)}
+        coverage_categories = {
+            "happy_path":  sc_id != "n/a",
+            "negative":    any(kw in combined_txt for kw in _NEGATIVE_KW),
+            "edge_case":   any(kw in combined_txt for kw in _EDGE_KW),
+            "mobile":      bool(browsers_run & _MOBILE_BR),
+            "android":     "android" in browsers_run,
+            "he_executed": bool(session_link),
+            "regression":  playwright_overall not in ("data_unavailable", None),
+        }
+
         rows.append({
             "requirement_id": req["id"],
-            "acceptance_criterion": req.get("description", ""),
+            "acceptance_criterion": description,
             "scenario_id": sc_id,
             "test_case_id": tc_id,
             "function_name": fn_name,
+            "feature": feature,
+            "criticality": criticality,
+            "coverage_categories": coverage_categories,
             "kane_ai_result": kane_status,
             "kane_session_link": kane_session_link,
             "kane_one_liner": kane_one_liner,

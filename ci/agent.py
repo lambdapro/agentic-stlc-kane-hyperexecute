@@ -608,13 +608,20 @@ def write_recommendation(he_tasks: list, requirements_total: int) -> None:
 
 
 # ── Post-pipeline: deterministic CI report scripts ─────────────────────────
+# Critical scripts must all succeed — pipeline exits 1 if any fail.
+# Order matters: normalize → traceability → coverage → gates → rca → summary
 _CRITICAL_SCRIPTS = [
     "ci/normalize_artifacts.py",
     "ci/build_traceability.py",
     "ci/release_recommendation.py",
+    "ci/coverage_analysis.py",
     "ci/write_github_summary.py",
 ]
+# Advisory scripts log warnings but never block the pipeline.
 _ADVISORY_SCRIPTS = [
+    "ci/impact_analysis.py",
+    "ci/quality_gates.py",
+    "ci/fetch_rca.py",
     "ci/validate_report.py",
     "ci/pipeline_metrics.py",
 ]
