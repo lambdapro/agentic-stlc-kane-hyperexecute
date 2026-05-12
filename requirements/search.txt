@@ -6,9 +6,17 @@ So that I can experience a full online shopping workflow
 
 Acceptance Criteria:
 User can add a product to the cart from the product detail page and see the cart item count update
-User can open the cart and see the list of added items with their names and prices
-User can navigate to the product catalog and see a list of products
-User can apply a brand filter from the sidebar to narrow product results
-User can click a product to open its detail page and see the name and price
-User can browse products and the homepage without logging in
-User can search for a product by name and see relevant results
+User can open the cart dropdown and see the list of added items with their names and prices
+User can navigate to the Laptops product catalog and see a grid of product listings
+User can apply a manufacturer brand filter from the sidebar to narrow product results
+User can click a product thumbnail to open its detail page and see the product name and price
+User can browse the homepage and product listings without logging in as a guest
+User can search for a product by name using the search bar and see relevant results
+User can register a new account by filling in first name last name email telephone and password fields
+User can log in with a registered email address and password and land on the account dashboard
+User can log out from the account and be redirected to the home page
+User can remove an item from the shopping cart and see the cart update with the item gone
+User can update the quantity of an item in the shopping cart and see the line total recalculate
+User can sort products by price low to high and see the listing order change
+User can add a product to the wish list from the product detail page and view it in the wishlist
+User can complete a guest checkout by entering a shipping address and selecting flat rate shipping

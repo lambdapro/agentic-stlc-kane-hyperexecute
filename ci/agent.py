@@ -693,23 +693,41 @@ async def main() -> None:
         "Output":     "scenarios/scenarios.json",
     })
 
-    # ── Stage 3: Generate tests ────────────────────────────────────────────
-    print_stage_header("3", "GENERATE_TESTS", "Generate Playwright test file from scenarios")
-    generate_tests(scenarios)
+    # ── Stage 3: Generate tests from Kane AI code exports ─────────────────
+    # collect_kane_exports.py is the authoritative Stage 3 generator.
+    # It reads Kane's exported Python Playwright code from each session's
+    # code-export directory and assembles test_powerapps.py with real
+    # executable test bodies.  Falls back to curated bodies when Kane has
+    # no export for a given AC so every scenario always has an implementation.
+    print_stage_header("3", "GENERATE_TESTS",
+                       "Assemble Kane-exported Python Playwright tests (Stage 3a)")
+    try:
+        from collect_kane_exports import collect_and_assemble
+        export_stats = collect_and_assemble(
+            analyzed_path="requirements/analyzed_requirements.json",
+            scenarios_path=str(sc_path),
+            output_path="tests/playwright/test_powerapps.py",
+        )
+    except Exception as exc:
+        print(f"[warn] collect_kane_exports failed ({exc}), falling back to template generator")
+        generate_tests(scenarios)
+        export_stats = {"total": sum(1 for s in scenarios if s["status"] != "deprecated"),
+                        "kane_used": 0, "fallback_used": 0, "missing": 0}
+
     # Persist scenarios.json with function_name now set
     sc_path.write_text(json.dumps(scenarios, indent=2), encoding="utf-8")
 
-    active_count = sum(1 for s in scenarios if s["status"] != "deprecated")
     syntax_ok = validate_generated_tests()
     if not syntax_ok:
         print("[PIPELINE] Generated test file has syntax errors — aborting", file=sys.stderr)
         sys.exit(1)
 
     print_stage_result("3", "GENERATE_TESTS", {
-        "Tests generated": active_count,
-        "Syntax":          "VALID",
-        "Output":          "tests/playwright/test_powerapps.py",
-        "Objectives":      "kane/objectives.json",
+        "Tests assembled":  export_stats.get("total", 0),
+        "Kane export used": export_stats.get("kane_used", 0),
+        "Fallback used":    export_stats.get("fallback_used", 0),
+        "Syntax":           "VALID",
+        "Output":           "tests/playwright/test_powerapps.py",
     })
 
     # ── Stage 4: Write test selection ──────────────────────────────────────
