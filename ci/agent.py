@@ -38,6 +38,79 @@ BUILD_NAME        = (
 JOB_ID_RE = re.compile(r"jobId=([\w-]+)")
 _TERMINAL_HE_STATUSES = {"completed", "passed", "failed", "error", "aborted", "cancelled"}
 
+# Extended patterns to extract job ID from varied HE CLI output formats
+_JOB_ID_PATTERNS = [
+    re.compile(r"jobId=([\w-]+)"),
+    re.compile(r"job[_\s-]?id[:\s=]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.IGNORECASE),
+    re.compile(r"hyperexecute/task\?jobId=([\w-]+)", re.IGNORECASE),
+    re.compile(r"Job\s+(?:ID|Id|id)[:\s]+([0-9a-f]{8}-[0-9a-f]{4}-[\w-]+)", re.IGNORECASE),
+]
+
+# Enterprise-normalized status map: raw HE API value → deterministic label
+_HE_STATUS_NORMALIZE: dict[str, str] = {
+    "completed":  "PASSED",
+    "passed":     "PASSED",
+    "failed":     "FAILED",
+    "error":      "INFRA_FAILURE",
+    "aborted":    "CANCELLED",
+    "cancelled":  "CANCELLED",
+    "running":    "RUNNING",
+    "initiated":  "RUNNING",
+    "queued":     "RUNNING",
+    "unknown":    "",          # resolved dynamically from tasks
+    "":           "",
+}
+
+
+def _extract_job_id(text: str) -> str:
+    """Try multiple regex patterns to extract HE job ID from CLI output."""
+    for pattern in _JOB_ID_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _derive_status_from_tasks(he_tasks: list) -> str:
+    """
+    When the HE job API is unreachable, derive a terminal status from
+    individual task results.  Returns a raw HE-compatible status string
+    so the rest of the pipeline remains unchanged.
+    """
+    if not he_tasks:
+        return ""
+    statuses = [t.get("status", "") for t in he_tasks]
+    terminal = [s for s in statuses if s in ("passed", "failed")]
+    if not terminal:
+        return ""
+    if all(s == "passed" for s in terminal):
+        return "completed"
+    return "failed"
+
+
+def _normalize_he_status(raw_status: str, he_tasks: list) -> str:
+    """
+    Map a raw HE status (or a task-derived status) to an enterprise-grade
+    deterministic label.  Never returns 'unknown'.
+    """
+    normalized = _HE_STATUS_NORMALIZE.get((raw_status or "").lower())
+    if normalized:
+        return normalized
+    # Derive from task results when raw status is ambiguous/empty
+    if he_tasks:
+        task_statuses = [t.get("status", "") for t in he_tasks]
+        passed = sum(1 for s in task_statuses if s == "passed")
+        failed = sum(1 for s in task_statuses if s == "failed")
+        total  = passed + failed
+        if total == 0:
+            return "NOT_EXECUTED"
+        if failed == 0:
+            return "PASSED"
+        if passed == 0:
+            return "FAILED"
+        return "PARTIAL"
+    return "NOT_EXECUTED" if not raw_status else "INFRA_FAILURE"
+
 # ── Deterministic test generation ──────────────────────────────────────────
 def _derive_fn_name(sc_id: str, title: str) -> str:
     """Derive a stable pytest function name from scenario ID + title."""
@@ -351,9 +424,10 @@ def run_hyperexecute() -> str:
         for line in combined.splitlines()[:30]:
             print(f"  {line}")
 
-    match = JOB_ID_RE.search(combined)
-    job_id = match.group(1) if match else ""
-    print(f"[hyperexecute] job_id={job_id!r}")
+    job_id = _extract_job_id(combined)
+    print(f"[hyperexecute] job_id={job_id!r}  (extracted via multi-pattern parser)")
+    if not job_id:
+        print("[hyperexecute] WARNING: could not extract job_id from CLI output — status resolution will use task-derived fallback")
     return job_id
 
 
@@ -466,6 +540,32 @@ async def _fetch_automation_sessions_by_build(client: httpx.AsyncClient, build_n
     return [_parse_session(s, "automation") for s in sessions]
 
 
+async def _fetch_he_job_status_rest(client: httpx.AsyncClient, job_id: str) -> dict:
+    """
+    Direct HyperExecute REST API call to retrieve job status.
+    Used as a fallback when MCP is unreachable.
+    Returns a job_inner dict compatible with _write_api_details expectations.
+    """
+    if not job_id or not LT_USERNAME or not LT_ACCESS_KEY:
+        return {}
+    try:
+        resp = await client.get(
+            f"https://api.hyperexecute.cloud/v2.0/job/{job_id}",
+            auth=(LT_USERNAME, LT_ACCESS_KEY),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            job_inner = data.get("data") or data.get("jobInfo") or data
+            status = job_inner.get("status", "")
+            print(f"[he_rest] job status from REST API: {status!r}  job_id={job_id}")
+            return job_inner
+        print(f"[he_rest] REST API returned HTTP {resp.status_code} for job_id={job_id}")
+    except Exception as exc:
+        print(f"[he_rest] REST API call failed: {exc}")
+    return {}
+
+
 async def _fetch_he_sessions(job_id: str) -> list:
     """
     Fetch per-test session results.
@@ -530,19 +630,47 @@ async def fetch_and_save_mcp_results(job_id: str) -> None:
                 _write_api_details(job_inner, he_tasks, job_id)
 
     except Exception as exc:
-        print(f"[mcp] connection failed: {exc} — falling back to HE sessions API")
+        print(f"[mcp] connection failed: {exc} — falling back to HE REST API + sessions API")
+        async with httpx.AsyncClient(timeout=30) as _fb_client:
+            job_inner_fb = await _fetch_he_job_status_rest(_fb_client, job_id) if job_id else {}
         he_tasks = await _fetch_he_sessions(job_id)
-        _write_api_details({}, he_tasks, job_id)
+        _write_api_details(job_inner_fb, he_tasks, job_id)
 
 
 def _write_api_details(job_inner: dict, he_tasks: list, job_id: str) -> None:
+    raw_status = (job_inner.get("status") or "").strip()
+
+    # When the job API is unavailable or returns "unknown", derive from task results
+    # so the report never shows an unresolvable status.
+    if not raw_status or raw_status == "unknown":
+        derived = _derive_status_from_tasks(he_tasks)
+        if derived:
+            print(f"[api_details] raw status={raw_status!r} — derived '{derived}' from {len(he_tasks)} task result(s)")
+            raw_status = derived
+            parser_status = "derived_from_tasks"
+        else:
+            parser_status = "not_executed" if not job_id else "mcp_unavailable"
+    else:
+        parser_status = "api_ok"
+
+    normalized_status = _normalize_he_status(raw_status, he_tasks)
+
+    task_pass  = sum(1 for t in he_tasks if t.get("status") == "passed")
+    task_fail  = sum(1 for t in he_tasks if t.get("status") == "failed")
+    task_other = len(he_tasks) - task_pass - task_fail
+
     he_summary = {
         "job_id":                job_inner.get("jobId") or job_id,
         "job_link":              job_inner.get("jobLink") or (
             f"https://hyperexecute.lambdatest.com/hyperexecute/task?jobId={job_id}" if job_id else ""
         ),
-        "status":                job_inner.get("status", "unknown"),
-        "total_tasks":           job_inner.get("totalTasks", len(he_tasks)),
+        "status":                raw_status or "NOT_EXECUTED",
+        "normalized_status":     normalized_status,
+        "parser_status":         parser_status,
+        "total_tasks":           job_inner.get("totalTasks") or len(he_tasks),
+        "task_pass_count":       task_pass,
+        "task_fail_count":       task_fail,
+        "task_other_count":      task_other,
         "selenium_reports_link": job_inner.get("seleniumReportsLink", ""),
         "runtime_logs_link":     job_inner.get("runtimeLogsLink", ""),
     }
@@ -551,7 +679,11 @@ def _write_api_details(job_inner: dict, he_tasks: list, job_id: str) -> None:
     Path("reports/api_details.json").write_text(
         json.dumps(api_details, indent=2), encoding="utf-8"
     )
-    print(f"[api_details] saved {len(he_tasks)} test session(s) — job status={he_summary['status']}")
+    print(
+        f"[api_details] saved {len(he_tasks)} task(s) — "
+        f"raw={raw_status!r}  normalized={normalized_status}  parser={parser_status}"
+        f"  pass={task_pass} fail={task_fail}"
+    )
 
 
 # ── Stage 7: Release recommendation (threshold-based) ─────────────────────

@@ -71,6 +71,31 @@ def status_icon(status):
     return mapping.get(status, "❓")
 
 
+def _derive_normalized_status(raw_status: str, he_tasks: list) -> str:
+    """Mirror of agent.py _normalize_he_status — used for display when api_details lacks normalized_status."""
+    _map = {
+        "completed": "PASSED", "passed": "PASSED",
+        "failed": "FAILED", "error": "INFRA_FAILURE",
+        "aborted": "CANCELLED", "cancelled": "CANCELLED",
+        "running": "RUNNING", "initiated": "RUNNING", "queued": "RUNNING",
+    }
+    n = _map.get((raw_status or "").lower())
+    if n:
+        return n
+    if he_tasks:
+        passed = sum(1 for t in he_tasks if t.get("status") == "passed")
+        failed = sum(1 for t in he_tasks if t.get("status") == "failed")
+        total = passed + failed
+        if total == 0:
+            return "NOT_EXECUTED"
+        if failed == 0:
+            return "PASSED"
+        if passed == 0:
+            return "FAILED"
+        return "PARTIAL"
+    return "NOT_EXECUTED" if not raw_status else "INFRA_FAILURE"
+
+
 def _he_job_id_from_log():
     for path in ("reports/hyperexecute-cli.log", "reports/hyperexecute_failure_analysis.md"):
         p = Path(path)
@@ -117,7 +142,11 @@ def main():
         f"https://hyperexecute.lambdatest.com/hyperexecute/task?jobId={he_job_id}"
         if he_job_id else ""
     )
-    he_status = he_api.get("status", "unknown")
+    he_status_raw = he_api.get("status", "") or ""
+    # Use pre-computed normalized status when available; fall back to inline derivation
+    he_normalized = he_api.get("normalized_status", "") or _derive_normalized_status(he_status_raw, he_tasks_api)
+    he_parser_status = he_api.get("parser_status", "unknown")
+    he_status = he_normalized or he_status_raw or "NOT_EXECUTED"
 
     release_md = Path("reports/release_recommendation.md")
     verdict_line = "UNKNOWN"
@@ -143,18 +172,25 @@ def main():
     kane_passed = sum(1 for r in requirements if r.get("kane_status") == "passed")
     kane_total = len(requirements)
     kane_status_icon = "✅" if kane_passed == kane_total else ("🟡" if kane_passed > 0 else "❌")
-    he_icon = "✅" if he_status in ("completed", "passed") else ("⚠️" if he_status == "unknown" else "❌")
+    _he_icon_map = {
+        "PASSED": "✅", "FAILED": "❌", "PARTIAL": "🟡",
+        "RUNNING": "⏳", "CANCELLED": "🚫", "INFRA_FAILURE": "🔥",
+        "NOT_EXECUTED": "⏭️", "TIMED_OUT": "⏰",
+    }
+    he_icon = _he_icon_map.get(he_status, "⚠️")
+    he_task_pass = he_api.get("task_pass_count", sum(1 for t in he_tasks_api if t.get("status") == "passed"))
+    he_task_total = he_api.get("total_tasks", len(he_tasks_api))
     verdict_icon = verdict_emoji(verdict_line)
 
     emit("## Pipeline Stage Status")
     emit("")
-    emit("| Stage | Name | Status | Details |")
-    emit("|-------|------|--------|---------|")
-    emit(f"| 1 | KaneAI Verification | {kane_status_icon} | {kane_passed}/{kane_total} passed |")
-    emit(f"| 2–4 | Scenarios + Test Gen + Selection | ✅ | {len([s for s in scenarios if s.get('status') != 'deprecated'])} active tests |")
-    emit(f"| 5 | HyperExecute Regression | {he_icon} | status: {he_status} |")
-    emit(f"| 6 | Result Aggregation | ✅ | {len(normalized)} results normalized |")
-    emit(f"| 7–8 | Traceability + Verdict | {verdict_icon} | {verdict_line} |")
+    emit("| Stage | Name | Status | Normalized Status | Details |")
+    emit("|-------|------|--------|-------------------|---------|")
+    emit(f"| 1 | KaneAI Verification | {kane_status_icon} | {'PASSED' if kane_passed == kane_total else 'PARTIAL' if kane_passed > 0 else 'FAILED'} | {kane_passed}/{kane_total} criteria passed |")
+    emit(f"| 2–4 | Scenarios + Test Gen + Selection | ✅ | PASSED | {len([s for s in scenarios if s.get('status') != 'deprecated'])} active tests generated |")
+    emit(f"| 5 | HyperExecute Regression | {he_icon} | {he_status} | {he_task_pass}/{he_task_total} tasks · parser: {he_parser_status} |")
+    emit(f"| 6 | Result Aggregation | ✅ | PASSED | {len(normalized)} results normalized |")
+    emit(f"| 7–8 | Traceability + Verdict | {verdict_icon} | {verdict_line} | see release recommendation below |")
     emit("")
 
     # ── Execution Links ────────────────────────────────────────────────────────
@@ -243,21 +279,33 @@ def main():
     emit("## Stage 5 · HyperExecute Regression (Multi-Browser)")
     emit("")
 
-    he_passed_count = sum(1 for t in he_tasks_api if t.get("status") == "passed")
-    he_total_count = len(he_tasks_api) or he_api.get("total_tasks", 0) or len(selected)
+    he_passed_count = he_api.get("task_pass_count", sum(1 for t in he_tasks_api if t.get("status") == "passed"))
+    he_failed_count = he_api.get("task_fail_count", sum(1 for t in he_tasks_api if t.get("status") == "failed"))
+    he_total_count  = he_api.get("total_tasks") or len(he_tasks_api) or len(selected)
 
-    emit("| Metric | Value |")
-    emit("|---|---|")
+    emit("| Metric | Raw Value | Normalized | Evidence |")
+    emit("|--------|-----------|------------|----------|")
     if he_job_link:
-        emit(f"| HyperExecute Job | [Open in LambdaTest ↗]({he_job_link}) |")
+        emit(f"| HyperExecute Job | `{he_job_id}` | — | [Open in LambdaTest ↗]({he_job_link}) |")
     else:
-        emit(f"| HyperExecute Job ID | `{he_job_id or 'n/a'}` |")
-    emit(f"| Status | {he_status} |")
-    emit(f"| Browsers | {', '.join(all_browsers) if all_browsers else 'chrome (default)'} |")
-    emit(f"| Total tasks | {he_total_count} |")
-    emit(f"| ✅ Passed | {he_passed_count} |")
-    emit(f"| ❌ Failed | {he_total_count - he_passed_count} |")
-    emit(f"| Pass rate | {pass_rate}% |")
+        emit(f"| HyperExecute Job ID | `{he_job_id or 'n/a'}` | — | job not submitted or ID extraction failed |")
+    emit(f"| Job Status | `{he_status_raw or 'not returned'}` | **{he_status}** | source: {he_parser_status} |")
+    emit(f"| Parser Status | `{he_parser_status}` | — | how status was resolved |")
+    emit(f"| Browsers | — | — | {', '.join(all_browsers) if all_browsers else 'chrome (default)'} |")
+    emit(f"| Total tasks | {he_total_count} | — | submitted to HyperExecute |")
+    emit(f"| ✅ Passed | {he_passed_count} | — | task-level results |")
+    emit(f"| ❌ Failed | {he_failed_count} | — | task-level results |")
+    emit(f"| Pass rate | {pass_rate}% | — | across all browsers |")
+    emit("")
+
+    _parser_notes = {
+        "api_ok":             "✅ Job status fetched directly from HyperExecute API",
+        "derived_from_tasks": "ℹ️ Job API unreachable — status derived from individual task results",
+        "mcp_unavailable":    "⚠️ MCP connection failed and HE REST API returned no status — check LT credentials",
+        "not_executed":       "⏭️ HyperExecute stage was not executed (no job submitted)",
+    }
+    note = _parser_notes.get(he_parser_status, f"ℹ️ Parser status: `{he_parser_status}`")
+    emit(f"> **Status resolution:** {note}")
     emit("")
 
     if he_tasks_api:
