@@ -11,6 +11,8 @@ from .coverage_analysis import CoverageAnalysisSkill
 from .confidence_analysis import ConfidenceAnalysisSkill
 from .rca import RCASkill
 from .claude_feedback import ClaudeFeedbackSkill
+from .git_operations import GitOperationsSkill
+from .workflow_monitor import WorkflowMonitorSkill
 
 # Auto-register all skills
 from astlc.registry import SkillRegistry
@@ -25,6 +27,8 @@ SkillRegistry.register("coverage_analysis",        CoverageAnalysisSkill)
 SkillRegistry.register("confidence_analysis",      ConfidenceAnalysisSkill)
 SkillRegistry.register("rca",                      RCASkill)
 SkillRegistry.register("claude_feedback",          ClaudeFeedbackSkill)
+SkillRegistry.register("git_operations",           GitOperationsSkill)
+SkillRegistry.register("workflow_monitor",         WorkflowMonitorSkill)
 
 __all__ = [
     "AgentSkill",
@@ -38,4 +42,6 @@ __all__ = [
     "ConfidenceAnalysisSkill",
     "RCASkill",
     "ClaudeFeedbackSkill",
+    "GitOperationsSkill",
+    "WorkflowMonitorSkill",
 ]

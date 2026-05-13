@@ -232,6 +232,73 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_chat(args: argparse.Namespace) -> int:
+    """Interactive chat-first workflow: upload requirements -> get results in chat."""
+    cfg = _load_config(args)
+
+    req_file   = getattr(args, "requirements", None)
+    repo_url   = getattr(args, "repo", None)      or (cfg.project.repository if cfg.project else "")
+    branch     = getattr(args, "branch", None)
+    target_url = getattr(args, "target_url", None) or (cfg.target.url if cfg.target else "")
+    yes        = getattr(args, "yes", False)
+
+    from astlc.conversation import ConversationalOrchestrator
+
+    def _update(msg: str) -> None:
+        print(msg)
+
+    orch = ConversationalOrchestrator(config=cfg, on_update=_update)
+
+    # ── File ingestion ──────────────────────────────────────────────────────
+    if not req_file:
+        print("\nNo requirements file specified.")
+        print("Usage:  agentic-stlc chat --requirements <file> [--repo URL] [--branch BRANCH]")
+        req_file = input("\nRequirements file path: ").strip()
+        if not req_file:
+            print("ERROR: requirements file is required.")
+            return 1
+
+    print(f"\nIngesting: {req_file}")
+    state = orch.ingest(path=req_file)
+
+    if state.get("status") == "error":
+        print(f"\nERROR: {state['error']}")
+        return 1
+
+    # Print the preview markdown
+    print()
+    print(state["markdown"])
+    print()
+
+    # ── Confirmation ─────────────────────────────────────────────────────────
+    if not yes:
+        try:
+            answer = input("Proceed with full pipeline execution? [proceed/cancel]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "cancel"
+        if answer not in ("proceed", "yes", "y"):
+            print("Aborted.")
+            return 0
+
+    # ── Execute ───────────────────────────────────────────────────────────────
+    print()
+    result = orch.execute(
+        state,
+        repo_url=repo_url,
+        branch=branch or None,
+        target_url=target_url,
+        auto_push=bool(repo_url),
+    )
+
+    if result.get("status") == "error":
+        print(f"\nERROR at stage '{result.get('stage', '?')}': {result['error']}")
+        return 1
+
+    print()
+    print(result.get("markdown", "Pipeline completed."))
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate config and check required tools."""
     cfg = _load_config(args)
@@ -319,6 +386,14 @@ def build_parser() -> argparse.ArgumentParser:
     # validate
     subparsers.add_parser("validate", help="Validate config and check tool availability")
 
+    # chat  (chat-first autonomous mode)
+    p_chat = subparsers.add_parser("chat", help="Chat-first autonomous QA workflow: upload requirements -> results in chat")
+    p_chat.add_argument("--requirements", metavar="FILE",   help="Requirements file path (txt/md/yaml/json)")
+    p_chat.add_argument("--repo",         metavar="URL",    help="Repository URL")
+    p_chat.add_argument("--branch",       metavar="BRANCH", help="Target branch (auto-generated if omitted)")
+    p_chat.add_argument("--target-url",   metavar="URL",    dest="target_url", help="Application URL under test")
+    p_chat.add_argument("--yes", "-y",    action="store_true", help="Skip confirmation prompt")
+
     return parser
 
 
@@ -334,6 +409,7 @@ def main() -> int:
         "status":   cmd_status,
         "init":     cmd_init,
         "validate": cmd_validate,
+        "chat":     cmd_chat,
     }
 
     if not args.command:

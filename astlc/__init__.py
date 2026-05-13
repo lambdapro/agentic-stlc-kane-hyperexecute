@@ -6,5 +6,16 @@ __author__ = "Agentic STLC Platform"
 from .config import PlatformConfig
 from .telemetry import Telemetry
 from .registry import SkillRegistry, AdapterRegistry
+from .conversation import ConversationalOrchestrator
+from .chat_reporter import ChatReporter
+from .file_ingestor import FileIngestor
 
-__all__ = ["PlatformConfig", "Telemetry", "SkillRegistry", "AdapterRegistry"]
+__all__ = [
+    "PlatformConfig",
+    "Telemetry",
+    "SkillRegistry",
+    "AdapterRegistry",
+    "ConversationalOrchestrator",
+    "ChatReporter",
+    "FileIngestor",
+]
