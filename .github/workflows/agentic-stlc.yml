@@ -7,16 +7,24 @@ on:
       - "scenarios/**"
       - "tests/**"
       - "ci/**"
+      - "platform/**"
+      - "skills/**"
+      - "adapters/**"
       - "hyperexecute.yaml"
+      - "agentic-stlc.config.yaml"
       - ".github/workflows/agentic-stlc.yml"
+      - ".github/actions/**"
   pull_request:
     paths:
       - "requirements/**"
       - "scenarios/**"
       - "tests/**"
       - "ci/**"
+      - "platform/**"
+      - "skills/**"
+      - "adapters/**"
       - "hyperexecute.yaml"
-      - ".github/workflows/agentic-stlc.yml"
+      - "agentic-stlc.config.yaml"
   workflow_dispatch:
     inputs:
       full_run:
@@ -29,6 +37,11 @@ on:
         required: false
         default: "false"
         type: boolean
+      target_url:
+        description: "Override TARGET_URL for this run"
+        required: false
+        default: ""
+        type: string
 
 env:
   NODE_VERSION: "22"
@@ -36,184 +49,66 @@ env:
 
 jobs:
 
-  # ── Stage 1: KaneAI functional verification against live ecommerce site ───────
-  # No hard timeout — KaneAI wall-clock is bounded by slowest criterion (90s),
-  # not the sum, thanks to parallel workers. npm/pip cached after first run.
+  # ── Stage 1: KaneAI Functional Verification ───────────────────────────────
+  # Uses the reusable composite action: .github/actions/analyze
   analyze:
     name: "Stage 1 · KaneAI Verification"
     runs-on: ubuntu-latest
-    env:
-      DEMO_MODE: ${{ inputs.demo_mode || 'false' }}
+    outputs:
+      requirements-count: ${{ steps.analyze.outputs.requirements_count }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: "Run KaneAI Analysis"
+        id: analyze
+        uses: ./.github/actions/analyze
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          lt-username:     ${{ secrets.LT_USERNAME }}
+          lt-access-key:   ${{ secrets.LT_ACCESS_KEY }}
+          node-version:    ${{ env.NODE_VERSION }}
+          python-version:  ${{ env.PYTHON_VERSION }}
+          demo-mode:       ${{ inputs.demo_mode || 'false' }}
+          kane-project-id: "01J2VAWPNBPA21T0BW44JW026X"
+          kane-folder-id:  "01KPD0NC5ZXZD9EXB23QCATTG2"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      # Cache npm so kane-cli install is fast on subsequent runs
-      - name: Cache npm packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-kane-${{ runner.os }}-${{ env.NODE_VERSION }}
-          restore-keys: npm-kane-${{ runner.os }}-
-
-      # Cache pip so Python dependency install is fast on subsequent runs
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: pip-${{ runner.os }}-
-
-      # Cache Kane results keyed on requirements content hash.
-      # If requirements/*.txt files are unchanged, skip live Kane calls entirely.
-      - name: Cache Kane results (by requirements hash)
-        id: kane-cache
-        uses: actions/cache@v4
-        with:
-          path: requirements/analyzed_requirements.json
-          key: kane-results-${{ hashFiles('requirements/*.txt') }}
-
-      - name: Install Kane CLI
-        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
-        run: npm install -g @testmuai/kane-cli
-
-      - name: Configure Kane CLI project
-        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
-        run: |
-          kane-cli config project 01J2VAWPNBPA21T0BW44JW026X
-          kane-cli config folder 01KPD0NC5ZXZD9EXB23QCATTG2
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
-
-      # DEMO_MODE: load pre-generated results — completes in <5 seconds
-      - name: Run KaneAI (DEMO_MODE — pre-generated results)
-        if: env.DEMO_MODE == 'true'
-        run: python ci/analyze_requirements.py --demo-mode
-
-      # Cache hit: requirements unchanged — validate cached artifact then skip live calls
-      - name: Run KaneAI (cache hit — requirements unchanged)
-        if: steps.kane-cache.outputs.cache-hit == 'true' && env.DEMO_MODE != 'true'
-        run: |
-          python - <<'PYEOF'
-          import json, sys
-          from pathlib import Path
-          p = Path('requirements/analyzed_requirements.json')
-          if not p.exists() or not p.stat().st_size:
-              print("Cached artifact missing or empty — re-run will fall through to live Kane")
-              sys.exit(1)
-          data = json.loads(p.read_text(encoding='utf-8'))
-          passed = sum(1 for r in data if r.get('kane_status') == 'passed')
-          print(f"CACHE HIT — reusing Kane results ({len(data)} requirements, {passed} passed)")
-          PYEOF
-        continue-on-error: true
-
-      # Cache miss: run live KaneAI verification
-      - name: Run KaneAI (live verification)
-        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
-        env:
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        run: python ci/analyze_requirements.py
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: analyzed-requirements
-          path: requirements/analyzed_requirements.json
-          retention-days: 30
-
-  # ── Stages 2-7: Scenario sync, test gen, HyperExecute, traceability, verdict ──
-  # No hard timeout — HyperExecute wall-clock is bounded by concurrency setting.
-  # Pip cached. HE CLI download is the only non-cached network step.
+  # ── Stages 2–7: Orchestrator ──────────────────────────────────────────────
+  # Uses the reusable composite action: .github/actions/orchestrate
   orchestrate:
-    name: "Stages 2-7 · Orchestrator"
+    name: "Stages 2–7 · Orchestrator"
     needs: analyze
     runs-on: ubuntu-latest
-    env:
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    outputs:
+      verdict:             ${{ steps.orchestrate.outputs.verdict }}
+      pass-rate:           ${{ steps.orchestrate.outputs.pass_rate }}
+      quality-gates-passed: ${{ steps.orchestrate.outputs.quality_gates_passed }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: "Run Orchestrator"
+        id: orchestrate
+        uses: ./.github/actions/orchestrate
         with:
+          lt-username:    ${{ secrets.LT_USERNAME }}
+          lt-access-key:  ${{ secrets.LT_ACCESS_KEY }}
           python-version: ${{ env.PYTHON_VERSION }}
+          full-run:       ${{ inputs.full_run || 'true' }}
+          target-url:     ${{ inputs.target_url || '' }}
+          he-config:      "hyperexecute.yaml"
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: pip-${{ runner.os }}-
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
-
-      - name: Ensure reports directory exists
-        run: mkdir -p reports
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: analyzed-requirements
-          path: requirements
-
-      - name: Validate Stage 1 artifact
+  # ── Summary ───────────────────────────────────────────────────────────────
+  summary:
+    name: "Pipeline Summary"
+    needs: [analyze, orchestrate]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: "Print final verdict"
         run: |
-          python - <<'PYEOF'
-          import json, sys
-          from pathlib import Path
-          p = Path('requirements/analyzed_requirements.json')
-          if not p.exists():
-              print("ERROR: analyzed_requirements.json not found after download", file=sys.stderr)
-              sys.exit(1)
-          try:
-              data = json.loads(p.read_text(encoding='utf-8'))
-              assert isinstance(data, list) and len(data) > 0, "Artifact is empty"
-              passed = sum(1 for r in data if r.get('kane_status') == 'passed')
-              print(f"Stage 1 artifact valid: {len(data)} requirements, {passed} passed")
-          except Exception as e:
-              print(f"ERROR: Invalid Stage 1 artifact: {e}", file=sys.stderr)
-              sys.exit(1)
-          PYEOF
-
-      - name: Download HyperExecute CLI
-        run: |
-          curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
-          chmod +x hyperexecute
-          if ! file hyperexecute | grep -q "ELF"; then
-            echo "ERROR: HyperExecute binary is not a valid ELF executable (possible 404)"
-            head -c 500 hyperexecute
-            exit 1
-          fi
-          ./hyperexecute --version
-
-      - name: Run orchestrator (Stages 2-7)
-        env:
-          LT_USERNAME: ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
-          TARGET_URL: "https://ecommerce-playground.lambdatest.io/"
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          FULL_RUN: ${{ inputs.full_run || 'true' }}
-        run: python ci/agent.py
-
-      - name: Generate pipeline metrics
-        if: always()
-        run: python ci/pipeline_metrics.py
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pipeline-reports
-          path: |
-            reports/
-            scenarios/scenarios.json
-            tests/playwright/test_powerapps.py
-          retention-days: 30
+          echo "## Pipeline Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Verdict | **${{ needs.orchestrate.outputs.verdict }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pass rate | ${{ needs.orchestrate.outputs.pass-rate }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Quality gates | ${{ needs.orchestrate.outputs.quality-gates-passed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Requirements analyzed | ${{ needs.analyze.outputs.requirements-count }} |" >> $GITHUB_STEP_SUMMARY

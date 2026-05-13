@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Agentic STLC Platform — Configuration Template
+# Copy to: agentic-stlc.config.yaml at your project root
+# Version: 1.0
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "1.0"
+
+# ── Project metadata ──────────────────────────────────────────────────────────
+project:
+  name: "my-app"
+  description: "Automated QA pipeline for my-app"
+  repository: "https://github.com/org/my-app"
+  branch: "main"
+
+# ── Requirements input ────────────────────────────────────────────────────────
+requirements:
+  # Supported formats: acceptance_criteria | gherkin | plain
+  format: "acceptance_criteria"
+  paths:
+    - "requirements/search.txt"
+    # - "requirements/cart.txt"     # add more files as needed
+  output_path: "requirements/analyzed_requirements.json"
+  encoding: "utf-8"
+
+# ── Scenario management ───────────────────────────────────────────────────────
+scenarios:
+  path: "scenarios/scenarios.json"
+  id_prefix: "SC"
+  id_start: 1
+
+# ── Test framework ────────────────────────────────────────────────────────────
+framework:
+  # Supported: playwright | selenium | cypress | webdriverio
+  type: "playwright"
+  # Supported: python | javascript | typescript
+  language: "python"
+  test_dir: "tests/playwright"
+  test_file: "tests/playwright/test_powerapps.py"
+
+# ── Application under test ────────────────────────────────────────────────────
+target:
+  url: "https://your-app-staging-url.example.com/"
+  environment: "staging"   # staging | production | local
+
+# ── Execution settings ────────────────────────────────────────────────────────
+execution:
+  # Supported providers: hyperexecute | local | github_actions
+  provider: "hyperexecute"
+  # incremental = only new/updated scenarios; full = all active scenarios
+  mode: "incremental"
+  concurrency: 5          # parallel VMs on HyperExecute
+  timeout_seconds: 90     # per-test timeout
+  retries: 1
+  browsers:
+    - chrome
+    # - firefox
+    # - safari
+  platforms:
+    - windows10
+    # - macOS Ventura
+
+# ── HyperExecute configuration ────────────────────────────────────────────────
+hyperexecute:
+  config_file: "hyperexecute.yaml"
+  cli_path: "./hyperexecute"       # or "hyperexecute" if on PATH
+  project: "my-app-agentic-stlc"
+  region: "us"                     # us | eu | ap
+
+# ── KaneAI configuration ──────────────────────────────────────────────────────
+kaneai:
+  enabled: true
+  parallel_workers: 5
+  timeout_seconds: 120
+  project_id: ""        # Your KaneAI project ID (from LambdaTest console)
+  folder_id:  ""        # Your KaneAI folder ID
+
+# ── Reporting ─────────────────────────────────────────────────────────────────
+reporting:
+  output_dir: "reports"
+  formats:
+    - json
+    - markdown
+    # - html
+  github_summary: true
+  artifacts:
+    - "reports/"
+    - "scenarios/scenarios.json"
+    - "tests/playwright/test_powerapps.py"
+
+# ── Quality gates ─────────────────────────────────────────────────────────────
+quality_gates:
+  min_coverage_pct: 50          # minimum % requirements with full coverage
+  min_pass_rate: 75             # minimum Playwright test pass rate
+  max_flaky: 5                  # maximum flaky requirement count
+  require_critical_coverage: true
+  max_high_risk_uncovered: 999  # 999 = disabled
+  min_he_pct: 0                 # 0 = disabled
+  confidence:
+    enabled: true
+    gate_severity: "WARNING"    # WARNING | CRITICAL
+
+# ── Adapter selection ─────────────────────────────────────────────────────────
+adapters:
+  git:               github          # github | gitlab | bitbucket
+  ci:                github_actions  # github_actions | gitlab_ci | jenkins
+  execution:         hyperexecute    # hyperexecute | local
+  functional_testing: kaneai         # kaneai | none
+  test_framework:    playwright      # playwright | selenium | cypress
+
+# ── Pipeline stage overrides (optional) ──────────────────────────────────────
+# pipeline:
+#   stages:
+#     - id: "1"
+#       name: "KANE_ANALYZE"
+#       script: "ci/analyze_requirements.py"
+#       enabled: true
+#       severity: "WARNING"    # WARNING = non-blocking; CRITICAL = blocks pipeline
+#     - id: "2b"
+#       name: "CONFIDENCE_ANALYSIS"
+#       enabled: true
+#       severity: "WARNING"
+
+# ── Plugin extensions (optional) ─────────────────────────────────────────────
+# plugins:
+#   - name: "my_custom_skill"
+#     module: "my_package.skills.custom"
+#     class: "CustomSkill"
+
+# ── Notification sinks (optional) ────────────────────────────────────────────
+# notifications:
+#   slack:
+#     enabled: true
+#     webhook_url: "https://hooks.slack.com/services/..."
+#   email:
+#     enabled: false
+#     recipients:
+#       - "qa-team@example.com"

@@ -1,0 +1,55 @@
+{
+  "name": "agentic-stlc",
+  "version": "1.0.0",
+  "description": "Enterprise-grade autonomous QA orchestration platform — requirements to executed, traced test results with zero manual test writing",
+  "keywords": [
+    "qa",
+    "testing",
+    "automation",
+    "playwright",
+    "hyperexecute",
+    "kaneai",
+    "lambdatest",
+    "traceability",
+    "requirements",
+    "agentic",
+    "ai-testing",
+    "stlc"
+  ],
+  "homepage": "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/issues"
+  },
+  "license": "MIT",
+  "author": "Agentic STLC Platform <platform@lambdatest.com>",
+  "bin": {
+    "agentic-stlc": "./scripts/agentic-stlc.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "validate": "node scripts/validate.js",
+    "init":     "node scripts/init.js"
+  },
+  "files": [
+    "scripts/",
+    "templates/",
+    ".github/actions/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@testmuai/kane-cli": "latest"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

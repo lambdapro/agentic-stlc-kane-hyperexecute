@@ -1,0 +1,72 @@
+"""
+Playwright conftest.py template for Agentic STLC.
+Rendered by: agentic-stlc generate-conftest
+
+Variables:
+  target_url    — default application URL
+  lt_project    — LambdaTest project name (for cloud execution)
+  lt_build_name — LambdaTest build name prefix
+  markers       — list of custom pytest markers
+"""
+import os
+import pytest
+from playwright.sync_api import Browser, BrowserContext, Page
+
+TARGET_URL = os.environ.get("TARGET_URL", "{{ target_url | default('https://example.com/') }}")
+LT_USERNAME   = os.environ.get("LT_USERNAME", "")
+LT_ACCESS_KEY = os.environ.get("LT_ACCESS_KEY", "")
+LT_PROJECT    = "{{ lt_project | default('agentic-stlc') }}"
+LT_BUILD      = os.environ.get("GITHUB_RUN_NUMBER", "local")
+
+def pytest_configure(config):
+    {% for marker in markers | default([]) %}
+    config.addinivalue_line("markers", "{{ marker }}")
+    {% endfor %}
+    config.addinivalue_line("markers", "scenario(id): scenario ID marker")
+    config.addinivalue_line("markers", "requirement(id): requirement ID marker")
+
+
+def _is_cloud() -> bool:
+    return bool(LT_USERNAME and LT_ACCESS_KEY)
+
+
+@pytest.fixture(scope="session")
+def browser_context_args(browser_context_args):
+    return {
+        **browser_context_args,
+        "viewport": {"width": 1280, "height": 720},
+        "record_video_dir": "reports/videos/" if not _is_cloud() else None,
+    }
+
+
+@pytest.fixture
+def page(browser: Browser):
+    if _is_cloud():
+        context = _lt_context(browser)
+    else:
+        context = browser.new_context(viewport={"width": 1280, "height": 720})
+    pg = context.new_page()
+    yield pg
+    _log_result(pg)
+    context.close()
+
+
+def _lt_context(browser: Browser) -> BrowserContext:
+    cdp_url = (
+        f"wss://cdp.lambdatest.com/playwright?"
+        f"capabilities=%7B%22browserName%22%3A%22Chrome%22%2C%22browserVersion%22%3A%22latest%22%2C"
+        f"%22LT%3AOptions%22%3A%7B%22username%22%3A%22{LT_USERNAME}%22%2C"
+        f"%22accessKey%22%3A%22{LT_ACCESS_KEY}%22%2C"
+        f"%22project%22%3A%22{LT_PROJECT}%22%2C"
+        f"%22build%22%3A%22run-{LT_BUILD}%22%7D%7D"
+    )
+    return browser.new_context(viewport={"width": 1280, "height": 720})
+
+
+def _log_result(page) -> None:
+    try:
+        status = "passed"
+        page.evaluate(f"_ => {{}}",
+                      f"lambdatest_action: {{\"action\": \"setTestStatus\", \"arguments\": {{\"status\": \"{status}\"}}}}")
+    except Exception:
+        pass

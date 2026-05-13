@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Agentic STLC Platform — Reusable GitHub Actions Workflow Template
+# Jinja2 template: render with `agentic-stlc generate-workflow` or manually
+#
+# Variables (set before rendering):
+#   project_name       — used in workflow name
+#   requirements_paths — glob path to requirements files
+#   python_version     — e.g. "3.11"
+#   node_version       — e.g. "22"
+#   he_config_file     — e.g. "hyperexecute.yaml"
+# ─────────────────────────────────────────────────────────────────────────────
+name: "Agentic STLC — {{ project_name }}"
+
+on:
+  push:
+    paths:
+      - "requirements/**"
+      - "scenarios/**"
+      - "tests/**"
+      - "ci/**"
+      - "{{ he_config_file }}"
+      - ".github/workflows/*.yml"
+      - "agentic-stlc.config.yaml"
+  pull_request:
+    paths:
+      - "requirements/**"
+      - "scenarios/**"
+      - "tests/**"
+      - "ci/**"
+      - "agentic-stlc.config.yaml"
+  workflow_dispatch:
+    inputs:
+      full_run:
+        description: "Run all active scenarios (not just new/updated)"
+        required: false
+        default: "true"
+        type: boolean
+      demo_mode:
+        description: "Use pre-generated Kane results, skip live calls"
+        required: false
+        default: "false"
+        type: boolean
+      target_url:
+        description: "Override TARGET_URL for this run"
+        required: false
+        default: ""
+
+env:
+  NODE_VERSION: "{{ node_version | default('22') }}"
+  PYTHON_VERSION: "{{ python_version | default('3.11') }}"
+
+jobs:
+
+  # ── Stage 1: KaneAI Functional Verification ───────────────────────────────
+  analyze:
+    name: "Stage 1 · KaneAI Verification"
+    runs-on: ubuntu-latest
+    env:
+      DEMO_MODE: {% raw %}${{ inputs.demo_mode || 'false' }}{% endraw %}
+    steps:
+      - uses: ./.github/actions/analyze
+        with:
+          lt-username:   {% raw %}${{ secrets.LT_USERNAME }}{% endraw %}
+          lt-access-key: {% raw %}${{ secrets.LT_ACCESS_KEY }}{% endraw %}
+          node-version:  {% raw %}${{ env.NODE_VERSION }}{% endraw %}
+          python-version: {% raw %}${{ env.PYTHON_VERSION }}{% endraw %}
+          demo-mode:     {% raw %}${{ inputs.demo_mode || 'false' }}{% endraw %}
+
+  # ── Stages 2–7: Orchestrator ──────────────────────────────────────────────
+  orchestrate:
+    name: "Stages 2–7 · Orchestrator"
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/orchestrate
+        with:
+          lt-username:   {% raw %}${{ secrets.LT_USERNAME }}{% endraw %}
+          lt-access-key: {% raw %}${{ secrets.LT_ACCESS_KEY }}{% endraw %}
+          python-version: {% raw %}${{ env.PYTHON_VERSION }}{% endraw %}
+          full-run:      {% raw %}${{ inputs.full_run || 'true' }}{% endraw %}
+          target-url:    {% raw %}${{ inputs.target_url || '' }}{% endraw %}
+          he-config:     "{{ he_config_file | default('hyperexecute.yaml') }}"

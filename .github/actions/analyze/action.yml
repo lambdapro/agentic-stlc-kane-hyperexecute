@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Composite Action: agentic-stlc-analyze
+# Stage 1 — KaneAI functional verification
+#
+# Reusable across any repository that uses the Agentic STLC platform.
+# Inputs match the workflow_dispatch inputs pattern.
+# ─────────────────────────────────────────────────────────────────────────────
+name: "Agentic STLC — Analyze (Stage 1)"
+description: "Run KaneAI functional verification per acceptance criterion"
+
+inputs:
+  lt-username:
+    description: "LambdaTest username"
+    required: true
+  lt-access-key:
+    description: "LambdaTest access key"
+    required: true
+  node-version:
+    description: "Node.js version for Kane CLI"
+    required: false
+    default: "22"
+  python-version:
+    description: "Python version"
+    required: false
+    default: "3.11"
+  demo-mode:
+    description: "Use pre-generated Kane results, skip live calls"
+    required: false
+    default: "false"
+  config-file:
+    description: "Path to agentic-stlc.config.yaml"
+    required: false
+    default: "agentic-stlc.config.yaml"
+  requirements-paths:
+    description: "Comma-separated requirements file paths"
+    required: false
+    default: "requirements/search.txt"
+  kane-project-id:
+    description: "KaneAI project ID"
+    required: false
+    default: ""
+  kane-folder-id:
+    description: "KaneAI folder ID"
+    required: false
+    default: ""
+
+outputs:
+  artifact-name:
+    description: "Name of the uploaded artifact containing analyzed requirements"
+    value: "analyzed-requirements"
+  requirements-count:
+    description: "Number of requirements analyzed"
+    value: ${{ steps.validate.outputs.requirements_count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Setup Node.js"
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: "Setup Python"
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: "Cache npm (kane-cli)"
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: npm-kane-${{ runner.os }}-${{ inputs.node-version }}
+        restore-keys: npm-kane-${{ runner.os }}-
+
+    - name: "Cache pip"
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+        restore-keys: pip-${{ runner.os }}-
+
+    - name: "Cache Kane results (by requirements hash)"
+      id: kane-cache
+      uses: actions/cache@v4
+      with:
+        path: requirements/analyzed_requirements.json
+        key: kane-results-${{ hashFiles('requirements/*.txt') }}
+
+    - name: "Install Python dependencies"
+      shell: bash
+      run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+    - name: "Install Kane CLI"
+      if: steps.kane-cache.outputs.cache-hit != 'true' && inputs.demo-mode != 'true'
+      shell: bash
+      run: npm install -g @testmuai/kane-cli
+
+    - name: "Configure Kane CLI"
+      if: steps.kane-cache.outputs.cache-hit != 'true' && inputs.demo-mode != 'true' && inputs.kane-project-id != ''
+      shell: bash
+      run: |
+        kane-cli config project ${{ inputs.kane-project-id }}
+        kane-cli config folder ${{ inputs.kane-folder-id }}
+
+    - name: "Run KaneAI (DEMO_MODE)"
+      if: inputs.demo-mode == 'true'
+      shell: bash
+      run: python ci/analyze_requirements.py --demo-mode
+      env:
+        DEMO_MODE: "true"
+
+    - name: "Validate cached Kane results"
+      if: steps.kane-cache.outputs.cache-hit == 'true' && inputs.demo-mode != 'true'
+      id: validate-cache
+      shell: bash
+      continue-on-error: true
+      run: |
+        python - <<'PYEOF'
+        import json, sys
+        from pathlib import Path
+        p = Path('requirements/analyzed_requirements.json')
+        if not p.exists() or not p.stat().st_size:
+            print("Cached artifact missing or empty — will fall through to live Kane")
+            sys.exit(1)
+        data = json.loads(p.read_text(encoding='utf-8'))
+        passed = sum(1 for r in data if r.get('kane_status') == 'passed')
+        print(f"CACHE HIT — reusing Kane results ({len(data)} requirements, {passed} passed)")
+        PYEOF
+
+    - name: "Run KaneAI (live verification)"
+      if: steps.kane-cache.outputs.cache-hit != 'true' && inputs.demo-mode != 'true'
+      shell: bash
+      env:
+        LT_USERNAME: ${{ inputs.lt-username }}
+        LT_ACCESS_KEY: ${{ inputs.lt-access-key }}
+        GITHUB_RUN_NUMBER: ${{ github.run_number }}
+      run: python ci/analyze_requirements.py
+
+    - name: "Validate Stage 1 output"
+      id: validate
+      shell: bash
+      run: |
+        python - <<'PYEOF'
+        import json, sys, os
+        from pathlib import Path
+        p = Path('requirements/analyzed_requirements.json')
+        if not p.exists():
+            print("ERROR: analyzed_requirements.json not found", file=sys.stderr)
+            sys.exit(1)
+        data = json.loads(p.read_text(encoding='utf-8'))
+        print(f"Stage 1 valid: {len(data)} requirements analyzed")
+        # Set output
+        with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+            f.write(f"requirements_count={len(data)}\n")
+        PYEOF
+
+    - name: "Upload analyzed requirements artifact"
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: analyzed-requirements
+        path: requirements/analyzed_requirements.json
+        retention-days: 30

@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "agentic-stlc"
+version = "1.0.0"
+description = "Enterprise-grade autonomous QA orchestration platform — requirements to executed, traced test results with zero manual test writing"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Agentic STLC Platform", email = "platform@lambdatest.com" },
+]
+keywords = [
+    "qa", "testing", "automation", "playwright", "hyperexecute",
+    "kaneai", "lambdatest", "traceability", "requirements",
+    "agentic", "llm", "ai-testing",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.44.0",
+    "pytest>=8.2.0",
+    "pytest-playwright>=0.5.0",
+    "pytest-html>=4.1.1",
+    "pytest-metadata>=3.1.1",
+    "mcp>=1.9.0",
+    "httpx>=0.27.0",
+    "httpx-sse>=0.4.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest-cov",
+    "black",
+    "ruff",
+    "mypy",
+]
+jinja = [
+    "Jinja2>=3.1",
+]
+all = [
+    "agentic-stlc[dev,jinja]",
+]
+
+[project.scripts]
+agentic-stlc = "cli.main:main"
+
+[project.urls]
+Homepage    = "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute"
+Repository  = "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute"
+Issues      = "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/issues"
+Changelog   = "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/blob/master/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["platform*", "skills*", "adapters*", "cli*"]
+
+[tool.setuptools.package-data]
+"templates" = ["**/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "scenario: Scenario ID marker",
+    "requirement: Requirement ID marker",
+    "smoke: Smoke test suite",
+    "regression: Regression test suite",
+]
