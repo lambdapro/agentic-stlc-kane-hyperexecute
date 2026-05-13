@@ -85,8 +85,24 @@ class ScenarioGenerationSkill(AgentSkill):
             desc = req.get("description", "")
             if rid in existing:
                 sc = existing[rid]
-                if sc.get("description") != desc and desc:
+                changed = False
+                # Backfill description from requirement if missing
+                source_desc = sc.get("description") or sc.get("source_description", "")
+                if source_desc != desc and desc:
                     sc["description"] = desc
+                    changed = True
+                elif not sc.get("description") and source_desc:
+                    sc["description"] = source_desc
+                # Backfill feature if missing or GENERAL
+                if not sc.get("feature") or sc.get("feature") == "GENERAL":
+                    sc["feature"] = self._infer_feature(sc.get("description", desc))
+                # Backfill kane_objective if missing
+                if not sc.get("kane_objective"):
+                    sc["kane_objective"] = self._default_objective(
+                        sc.get("description", desc),
+                        req.get("target_url", ""),
+                    )
+                if changed:
                     sc["status"] = "updated"
                     sc["updated_at"] = datetime.now(timezone.utc).isoformat()
                     stats["updated"] += 1

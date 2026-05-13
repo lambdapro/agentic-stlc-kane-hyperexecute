@@ -81,18 +81,45 @@ class GitOperationsSkill(AgentSkill):
     def _ensure_branch(self, branch: str, base: str) -> None:
         # Fetch to make sure we have the latest remote refs
         self._run(["git", "fetch", "--quiet"], check=False)
-        # Check if branch exists locally
-        result = self._run(["git", "branch", "--list", branch], check=False)
-        if branch in result.stdout:
-            self._run(["git", "checkout", branch])
-        else:
-            # Try remote branch first
-            remote_result = self._run(["git", "branch", "-r", "--list", f"origin/{branch}"], check=False)
-            if f"origin/{branch}" in remote_result.stdout:
-                self._run(["git", "checkout", "-b", branch, f"origin/{branch}"])
-            else:
-                # Create fresh from base
-                self._run(["git", "checkout", "-b", branch, f"origin/{base}"])
+
+        # Check if branch already exists locally
+        local_result = self._run(["git", "branch", "--list", branch], check=False)
+        if branch in local_result.stdout:
+            self._run(["git", "checkout", branch], check=False)
+            return
+
+        # Check if branch exists on remote
+        remote_result = self._run(["git", "branch", "-r", "--list", f"origin/{branch}"], check=False)
+        if f"origin/{branch}" in remote_result.stdout:
+            self._run(["git", "checkout", "-b", branch, f"origin/{branch}"])
+            return
+
+        # Check for uncommitted changes: if the working tree is dirty, create the
+        # branch at HEAD rather than attempting a full remote-base checkout, which
+        # would fail when local changes conflict with the target base.
+        dirty = self._run(["git", "status", "--porcelain"], check=False).stdout.strip()
+        if dirty:
+            # Create branch from current HEAD (pipeline-generated files are already on disk)
+            self._run(["git", "checkout", "-b", branch])
+            return
+
+        # Clean working tree — create from resolved remote base
+        resolved_base = self._resolve_base(base)
+        self._run(["git", "checkout", "-b", branch, resolved_base])
+
+    def _resolve_base(self, requested_base: str) -> str:
+        """Return 'origin/BRANCH' for the best available base branch."""
+        candidates = [requested_base, "main", "master", "develop", "trunk"]
+        remote_branches = self._run(["git", "branch", "-r"], check=False).stdout
+
+        for candidate in candidates:
+            ref = f"origin/{candidate}"
+            if ref in remote_branches:
+                return ref
+
+        # Last resort: current HEAD
+        head = self._run(["git", "rev-parse", "HEAD"], check=False).stdout.strip()
+        return head or "HEAD"
 
     def _stage(self, files: list[str]) -> None:
         existing = [f for f in files if Path(f).exists()]

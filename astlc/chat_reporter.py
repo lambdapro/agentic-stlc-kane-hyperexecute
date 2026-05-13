@@ -58,7 +58,7 @@ class ChatReporter:
         # Low-confidence warnings
         low_sc = [sc for sc in scenarios if sc.get("confidence_level") == "LOW"]
         if low_sc:
-            lines.append("### Warnings — Low Confidence")
+            lines.append("### Warnings - Low Confidence")
             for sc in low_sc[:5]:
                 reason = sc.get("confidence_reason", "insufficient detail")
                 lines.append(f"- **{sc['id']}**: {sc.get('description', '')[:80]}  ")
@@ -66,7 +66,9 @@ class ChatReporter:
             lines.append("")
 
         lines += [
+            "",
             "---",
+            "",
             "Reply **proceed** to generate Playwright specs, commit, and trigger the pipeline.",
             "Reply **cancel** to abort.",
         ]
@@ -95,7 +97,8 @@ class ChatReporter:
         if coverage:
             pct = coverage.get("coverage_pct", 0)
             total  = coverage.get("total_requirements", 0)
-            covered = coverage.get("fully_covered", coverage.get("covered", 0))
+            # CoverageAnalysisSkill uses "covered_full"; also accept "fully_covered" / "covered"
+            covered = coverage.get("covered_full", coverage.get("fully_covered", coverage.get("covered", 0)))
             lines += [
                 "## Requirement Coverage",
                 "",
@@ -156,9 +159,12 @@ class ChatReporter:
             for cat, items in failures_by_cat.items():
                 lines.append(f"### {cat} ({len(items)} failure(s))")
                 for item in items[:3]:
-                    lines.append(f"- **{item.get('scenario_id', item.get('id', ''))}**: {item.get('message', '')[:120]}")
-                    if item.get("suggested_fix"):
-                        lines.append(f"  _Suggested fix: {item['suggested_fix']}_")
+                    label = item.get("scenario_id") or item.get("requirement_id") or item.get("test") or item.get("id", "")
+                    lines.append(f"- **{label}**: {item.get('message', '')[:120]}")
+                    # RCASkill uses "advice"; also accept "suggested_fix"
+                    fix = item.get("suggested_fix") or item.get("advice", "")
+                    if fix:
+                        lines.append(f"  _Suggested fix: {fix}_")
             lines.append("")
 
         # Links
@@ -185,11 +191,11 @@ class ChatReporter:
 
         lines = ["## Failure Analysis", ""]
         for f in failures:
-            sc_id    = f.get("scenario_id", f.get("id", ""))
+            sc_id    = f.get("scenario_id") or f.get("test") or f.get("id", "")
             req_id   = f.get("requirement_id", "")
             category = f.get("category", "UNKNOWN")
             message  = f.get("message", "")[:200]
-            fix      = f.get("suggested_fix", "")
+            fix      = f.get("suggested_fix") or f.get("advice", "")
             session  = f.get("session_url", "")
 
             lines.append(f"### {sc_id} — {category}")

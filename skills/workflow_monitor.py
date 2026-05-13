@@ -128,27 +128,29 @@ class WorkflowMonitorSkill(AgentSkill):
                 headers=headers, timeout=20,
             )
             if resp.status_code == 200:
-                return [
-                    {
+                jobs = []
+                for j in resp.json().get("jobs", []):
+                    completed = _parse_iso(j.get("completed_at"))
+                    started   = _parse_iso(j.get("started_at"))
+                    duration  = (completed - started).total_seconds() if completed and started else 0
+                    jobs.append({
                         "name":       j.get("name"),
                         "status":     j.get("status"),
                         "conclusion": j.get("conclusion"),
-                        "duration_s": (
-                            (
-                                _parse_iso(j.get("completed_at")) - _parse_iso(j.get("started_at"))
-                            ).total_seconds()
-                            if j.get("completed_at") and j.get("started_at") else 0
-                        ),
-                    }
-                    for j in resp.json().get("jobs", [])
-                ]
+                        "duration_s": duration,
+                    })
+                return jobs
         except Exception:
             pass
         return []
 
 
 def _parse_iso(s: str | None):
+    """Parse ISO 8601 datetime string; returns None if input is empty or unparseable."""
     if not s:
         return None
-    from datetime import datetime, timezone
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None

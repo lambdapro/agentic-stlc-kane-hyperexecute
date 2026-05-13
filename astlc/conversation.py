@@ -5,11 +5,11 @@ PRIMARY INTERFACE for the chat-driven experience:
 
     orch  = ConversationalOrchestrator(config, on_update=print)
     state = orch.ingest("requirements.txt")
-    # → returns preview dict with rendered markdown; show to user
+    # -> returns preview dict with rendered markdown; show to user
 
     result = orch.execute(state, repo_url="...", branch="main")
-    # → runs full pipeline, streams progress via on_update
-    # → returns chat-ready markdown summary
+    # -> runs full pipeline, streams progress via on_update
+    # -> returns chat-ready markdown summary
 
 The on_update callback receives plain-text progress lines so callers
 can print them, stream them via SSE, or forward them to a chat UI.
@@ -77,6 +77,13 @@ class ConversationalOrchestrator:
         except Exception as exc:
             return {"status": "error", "error": str(exc)}
 
+        # Guard: reject empty or whitespace-only files before writing to disk
+        if not text.strip():
+            return {
+                "status": "error",
+                "error": "The uploaded file is empty. Please upload a file containing requirements.",
+            }
+
         # Write normalized text to a temp file so skills can read it
         tmp_path = self._reports_dir / "_ingested_requirements.txt"
         tmp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,34 +103,38 @@ class ConversationalOrchestrator:
         self._emit("Running confidence analysis...")
         confidence = self._analyze_confidence(scenarios)
 
-        # Attach confidence levels back to scenarios for preview
+        # Attach confidence levels back to scenarios for preview.
+        # ConfidenceAnalysisSkill returns "scenarios" with per-scenario confidence data.
         conf_map = {
             s.get("id"): s
             for s in confidence.get("scenarios", [])
-        } if confidence else {}
+            if s.get("id")
+        }
         for sc in scenarios:
-            if sc.get("id") in conf_map:
-                sc["confidence_level"]  = conf_map[sc["id"]].get("confidence_level", "MEDIUM")
-                sc["confidence_reason"] = conf_map[sc["id"]].get("confidence_reason", "")
+            sc_id = sc.get("id")
+            if sc_id and sc_id in conf_map:
+                sc["confidence_level"]  = conf_map[sc_id].get("confidence_level", "MEDIUM")
+                sc["confidence_reason"] = conf_map[sc_id].get("confidence_reason", "")
 
+        self._emit(f"Confidence analysis complete. {len(scenarios)} scenarios ready.")
         markdown = ChatReporter.preview(requirements, scenarios, confidence)
 
         return {
-            "status":       "preview",
-            "requirements": requirements,
-            "scenarios":    scenarios,
-            "confidence":   confidence,
-            "markdown":     markdown,
+            "status":        "preview",
+            "requirements":  requirements,
+            "scenarios":     scenarios,
+            "confidence":    confidence,
+            "markdown":      markdown,
             "_tmp_req_path": str(tmp_path),
         }
 
     def execute(
         self,
         state: dict,
-        repo_url: str | None = None,
-        branch: str | None   = None,
-        framework: str | None = None,
-        auto_push: bool       = True,
+        repo_url: str | None   = None,
+        branch: str | None     = None,
+        framework: str | None  = None,
+        auto_push: bool        = True,
         target_url: str | None = None,
     ) -> dict:
         """
@@ -148,9 +159,9 @@ class ConversationalOrchestrator:
         confidence   = state.get("confidence", {})
 
         # Resolve overrides from config
-        cfg_proj = self.config.project if self.config else None
-        repo_url  = repo_url  or (cfg_proj.repository if cfg_proj else "")
-        branch    = branch    or f"agentic-stlc/{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
+        cfg_proj   = self.config.project if self.config else None
+        repo_url   = repo_url   or (cfg_proj.repository if cfg_proj else "")
+        branch     = branch     or f"agentic-stlc/{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
         target_url = target_url or (
             self.config.target.url if self.config and self.config.target else ""
         )
@@ -159,12 +170,14 @@ class ConversationalOrchestrator:
         self._emit("Generating Playwright specs...")
         test_result = self._generate_tests(scenarios, target_url)
         test_file   = test_result.get("test_file", "tests/playwright/test_powerapps.py")
+        self._emit(f"Generated {test_result.get('tests_generated', 0)} test function(s).")
 
         # ── Stage 3b: Validate generated test syntax ─────────────────────────
         self._emit("Validating generated tests...")
         valid = self._validate_syntax(test_file)
         if not valid["ok"]:
             return {"status": "error", "stage": "validate", "error": valid["error"]}
+        self._emit("Test syntax validation passed.")
 
         # ── Stage 4a: Git operations ──────────────────────────────────────────
         self._emit("Creating branch and committing generated files...")
@@ -174,6 +187,10 @@ class ConversationalOrchestrator:
             "kane/objectives.json",
         ]
         git_result = self._git_commit(branch, files_to_commit, repo_url, auto_push)
+        if git_result.get("success"):
+            self._emit(f"Committed to branch '{branch}' (SHA: {git_result.get('commit_sha', '')[:8]}).")
+        else:
+            self._emit(f"Git commit skipped: {git_result.get('error', 'unknown')}")
 
         # ── Stage 4b: Trigger GitHub Actions ─────────────────────────────────
         run_id  = ""
@@ -185,6 +202,8 @@ class ConversationalOrchestrator:
             run_url = trigger.get("html_url", "")
             if run_id:
                 self._emit(f"Workflow triggered: run #{run_id}")
+            else:
+                self._emit("Workflow trigger failed or returned no run ID.")
         else:
             self._emit("Skipping GitHub Actions trigger (no GITHUB_TOKEN or repo_url).")
 
@@ -200,7 +219,7 @@ class ConversationalOrchestrator:
 
         # ── Stage 7: Coverage analysis ────────────────────────────────────────
         self._emit("Running coverage analysis...")
-        coverage = self._coverage_analysis(requirements, scenarios)
+        coverage_result = self._coverage_analysis(requirements, scenarios)
 
         # ── Stage 8: RCA ──────────────────────────────────────────────────────
         self._emit("Performing root cause analysis...")
@@ -208,23 +227,27 @@ class ConversationalOrchestrator:
 
         # ── Stage 9: Build verdict ────────────────────────────────────────────
         self._emit("Generating final summary...")
-        verdict = self._compute_verdict(coverage)
+        verdict = self._compute_verdict(coverage_result)
+
+        # Correct key path: CoverageAnalysisSkill returns {"coverage": {"summary": {...}}, ...}
+        coverage_summary = coverage_result.get("coverage", {}).get("summary", {})
 
         # ── Assemble result ───────────────────────────────────────────────────
         result = {
             "status":       "complete",
             "verdict":      verdict,
-            "coverage":     coverage.get("summary", {}),
+            "coverage":     coverage_summary,
             "confidence":   confidence,
             "execution":    self._parse_junit(),
             "hyperexecute": self._parse_he_summary(),
             "rca":          rca,
             "links": {
-                "github_actions":  run_url,
-                "hyperexecute":    self._he_dashboard_url(),
+                "github_actions":    run_url,
+                "hyperexecute":      self._he_dashboard_url(),
                 "playwright_report": str(self._reports_dir / "report.html"),
             },
-            "git": git_result,
+            "git":    git_result,
+            "monitor": monitor_result,
         }
 
         markdown = ChatReporter.execution_summary(result)
@@ -246,20 +269,30 @@ class ConversationalOrchestrator:
             return []
 
     def _generate_scenarios(self, requirements: list[dict]) -> list[dict]:
+        """Generate/sync scenarios then return the active list from disk."""
         try:
             from skills.scenario_generation import ScenarioGenerationSkill
             skill = ScenarioGenerationSkill(config=self.config, context={})
-            res = skill.run(requirements=requirements)
-            return res.get("scenarios", [])
+            res = skill.run()  # reads analyzed_requirements.json, writes scenarios.json
+            if res.get("success"):
+                # ScenarioGenerationSkill writes to disk; read back active scenarios.
+                sc_path = Path(
+                    res.get("scenarios_path")
+                    or (self.config.scenarios_path if self.config else "scenarios/scenarios.json")
+                )
+                if sc_path.exists():
+                    all_scenarios = json.loads(sc_path.read_text(encoding="utf-8"))
+                    return [s for s in all_scenarios if s.get("status") != "deprecated"]
         except Exception as exc:
             print(f"[conv] scenario_generation failed: {exc}", file=sys.stderr)
-            return []
+        return []
 
     def _analyze_confidence(self, scenarios: list[dict]) -> dict:
+        """Run confidence analysis; returns dict with 'scenarios' key for conf_map building."""
         try:
             from skills.confidence_analysis import ConfidenceAnalysisSkill
             skill = ConfidenceAnalysisSkill(config=self.config, context={})
-            return skill.run(scenarios=scenarios)
+            return skill.run()  # reads from disk; returns {"scenarios": [...], "summary": {...}, ...}
         except Exception as exc:
             print(f"[conv] confidence_analysis failed: {exc}", file=sys.stderr)
             return {}
@@ -268,7 +301,7 @@ class ConversationalOrchestrator:
         try:
             from skills.playwright_generation import PlaywrightGenerationSkill
             skill = PlaywrightGenerationSkill(config=self.config, context={})
-            return skill.run(scenarios=scenarios, target_url=target_url)
+            return skill.run(target_url=target_url)  # reads scenarios.json from disk
         except Exception as exc:
             print(f"[conv] playwright_generation failed: {exc}", file=sys.stderr)
             return {"success": False, "error": str(exc)}
@@ -282,7 +315,7 @@ class ConversationalOrchestrator:
         except py_compile.PyCompileError as exc:
             return {"ok": False, "error": str(exc)}
         except FileNotFoundError:
-            return {"ok": True}  # File not generated → nothing to validate
+            return {"ok": True}  # File not generated -> nothing to validate
 
     def _git_commit(self, branch: str, files: list[str], repo_url: str, push: bool) -> dict:
         try:
@@ -301,8 +334,8 @@ class ConversationalOrchestrator:
     def _trigger_workflow(self, repo_url: str, branch: str, target_url: str) -> dict:
         try:
             from adapters.github import GitHubActionsAdapter
-            token = os.environ.get("GITHUB_TOKEN", "")
-            gh    = GitHubActionsAdapter(token=token, repo=repo_url)
+            token  = os.environ.get("GITHUB_TOKEN", "")
+            gh     = GitHubActionsAdapter(token=token, repo=repo_url)
             run_id = gh.trigger_workflow(
                 workflow_id="agentic-stlc.yml",
                 ref=branch,
@@ -339,19 +372,27 @@ class ConversationalOrchestrator:
             print(f"[conv] collect_artifacts failed: {exc}", file=sys.stderr)
 
     def _coverage_analysis(self, requirements: list[dict], scenarios: list[dict]) -> dict:
+        """Returns CoverageAnalysisSkill result: {"coverage": {"summary": {...}}, ...}"""
         try:
             from skills.coverage_analysis import CoverageAnalysisSkill
             skill = CoverageAnalysisSkill(config=self.config, context={})
-            return skill.run(requirements=requirements, scenarios=scenarios)
+            return skill.run()
         except Exception as exc:
             print(f"[conv] coverage_analysis failed: {exc}", file=sys.stderr)
             return {}
 
     def _run_rca(self) -> dict:
+        """Run RCA and return result including the failures list from the written report."""
         try:
             from skills.rca import RCASkill
-            skill = RCASkill(config=self.config, context={})
-            return skill.run()
+            skill   = RCASkill(config=self.config, context={})
+            result  = skill.run()
+            # RCASkill writes rca_report.json; read it back to expose failures to ChatReporter.
+            rca_path = self._reports_dir / "rca_report.json"
+            if rca_path.exists():
+                report_data = json.loads(rca_path.read_text(encoding="utf-8"))
+                result["failures"] = report_data.get("failures", [])
+            return result
         except Exception as exc:
             print(f"[conv] rca failed: {exc}", file=sys.stderr)
             return {}
@@ -367,10 +408,12 @@ class ConversationalOrchestrator:
             ts   = root if root.tag == "testsuite" else root.find("testsuite")
             if ts is None:
                 return {}
+            total  = int(ts.get("tests", 0))
+            failed = int(ts.get("failures", 0)) + int(ts.get("errors", 0))
             return {
-                "total":  int(ts.get("tests", 0)),
-                "failed": int(ts.get("failures", 0)) + int(ts.get("errors", 0)),
-                "passed": int(ts.get("tests", 0)) - int(ts.get("failures", 0)) - int(ts.get("errors", 0)),
+                "total":  total,
+                "failed": failed,
+                "passed": total - failed,
                 "flaky":  0,
             }
         except Exception:
@@ -381,8 +424,8 @@ class ConversationalOrchestrator:
         if not api.exists():
             return {}
         try:
-            data = json.loads(api.read_text(encoding="utf-8"))
-            he   = data.get("he_summary", {})
+            data  = json.loads(api.read_text(encoding="utf-8"))
+            he    = data.get("he_summary", {})
             tasks = data.get("he_tasks", [])
             return {
                 "shards":     len(tasks),
@@ -391,8 +434,9 @@ class ConversationalOrchestrator:
         except Exception:
             return {}
 
-    def _compute_verdict(self, coverage: dict) -> str:
-        pct = coverage.get("summary", {}).get("coverage_pct", 0)
+    def _compute_verdict(self, coverage_result: dict) -> str:
+        # CoverageAnalysisSkill result shape: {"coverage": {"summary": {"coverage_pct": N}}, ...}
+        pct = coverage_result.get("coverage", {}).get("summary", {}).get("coverage_pct", 0)
         if pct >= 90:
             return "GREEN"
         if pct >= 75:

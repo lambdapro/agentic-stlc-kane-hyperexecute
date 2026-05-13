@@ -1,20 +1,22 @@
 """
 Skill 9: Confidence Analysis
 
-Wraps the existing ci/scenario_confidence.py engine and exposes it
-as a reusable platform skill. Can be called independently of the
-pipeline to re-score confidence after adding new scenarios.
+Scores each scenario's test coverage sufficiency and produces a structured
+confidence report. Wraps ci/scenario_confidence.py as a reusable skill.
 
 Reads:
   - requirements/analyzed_requirements.json
   - scenarios/scenarios.json
-  - PLAYWRIGHT_BODIES dict (optional, passed via inputs for body-quality scoring)
 
 Writes:
   - reports/scenario-confidence-report.json
   - reports/requirement-confidence-summary.md
   - reports/high-risk-requirements.json
   - reports/coverage-gap-analysis.json
+
+Returns:
+  success, confidence_gate_passed, scenarios (per-scenario confidence data),
+  summary (by_confidence_level breakdown), and report paths.
 """
 from __future__ import annotations
 
@@ -63,12 +65,31 @@ class ConfidenceAnalysisSkill(AgentSkill):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-        signals = report.get("summary", {}).get("quality_signals", {})
+        summary = report.get("summary", {})
+        records = report.get("records", [])
+        signals = summary.get("quality_signals", {})
+
+        # Build a "scenarios" list so ConversationalOrchestrator can attach
+        # confidence levels to scenario dicts during the ingest() preview.
+        scenario_confidence: list[dict] = [
+            {
+                "id":               r.get("scenario_id", ""),
+                "requirement_id":   r.get("requirement_id", ""),
+                "confidence_level": r.get("confidence_level", "MEDIUM"),
+                "confidence_reason": r.get("confidence_reason", ""),
+                "coverage_gaps":    r.get("coverage_gaps", []),
+                "recommendations":  r.get("recommendations", []),
+            }
+            for r in records
+        ]
+
         return {
-            "success": True,
-            "confidence_gate_passed": signals.get("confidence_gate_passed", True),
-            "high_criticality_low_confidence": signals.get("high_criticality_low_confidence", []),
-            "missing_negative_coverage_count": signals.get("missing_negative_coverage_count", 0),
-            "total_requirements": report.get("summary", {}).get("total_requirements", 0),
-            "report_path": str(reports_dir / "scenario-confidence-report.json"),
+            "success":  True,
+            "scenarios": scenario_confidence,
+            "summary":  summary,
+            "confidence_gate_passed":              signals.get("confidence_gate_passed", True),
+            "high_criticality_low_confidence":     signals.get("high_criticality_low_confidence", []),
+            "missing_negative_coverage_count":     signals.get("missing_negative_coverage_count", 0),
+            "total_requirements":                  summary.get("total_requirements", 0),
+            "report_path":                         str(reports_dir / "scenario-confidence-report.json"),
         }
