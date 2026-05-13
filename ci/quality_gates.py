@@ -216,6 +216,45 @@ def evaluate() -> dict:
             detail=f"{he_coverage_pct}% of requirements executed on HyperExecute",
         ))
 
+    # ── Gate 8: Scenario confidence — HIGH criticality must not be LOW/CRITICAL_GAP
+    confidence_data = _load_json("reports/scenario-confidence-report.json", {})
+    if confidence_data:
+        conf_signals = confidence_data.get("summary", {}).get("quality_signals", {})
+        high_crit_low_conf = conf_signals.get("high_criticality_low_confidence", [])
+        gates.append(_gate(
+            name="Scenario confidence — HIGH criticality requirements",
+            severity="WARNING",
+            passed=len(high_crit_low_conf) == 0,
+            actual=len(high_crit_low_conf),
+            threshold=0,
+            unit="HIGH-criticality requirements with LOW/CRITICAL_GAP confidence",
+            detail=(
+                f"LOW/CRITICAL_GAP confidence on: {', '.join(high_crit_low_conf)}"
+                if high_crit_low_conf
+                else "All HIGH-criticality requirements have MEDIUM or better confidence"
+            ),
+        ))
+
+        # Gate 9: Missing negative test coverage on HIGH criticality
+        missing_neg = [
+            r for r in confidence_data.get("records", [])
+            if r.get("criticality") == "HIGH"
+            and not r.get("coverage_dimensions", {}).get("negative")
+        ]
+        gates.append(_gate(
+            name="Negative test coverage on HIGH-criticality features",
+            severity="WARNING",
+            passed=len(missing_neg) == 0,
+            actual=len(missing_neg),
+            threshold=0,
+            unit="HIGH-criticality requirements missing negative scenarios",
+            detail=(
+                f"Missing negative coverage: {', '.join(r['requirement_id'] for r in missing_neg)}"
+                if missing_neg
+                else "All HIGH-criticality requirements have negative test coverage"
+            ),
+        ))
+
     # ── Evaluate ──────────────────────────────────────────────────────────────
     critical_failed = [g for g in gates if g["severity"] == "CRITICAL" and not g["passed"]]
     warnings_failed = [g for g in gates if g["severity"] == "WARNING"  and not g["passed"]]

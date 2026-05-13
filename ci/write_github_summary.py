@@ -248,6 +248,107 @@ def main():
                 emit(f"| `{s['id']}` {s.get('title', '')} | {status_icon(s['status'])} {s['status']} | `{s.get('requirement_id', '')}` |")
     emit("")
 
+    # ── Stage 2b: Scenario Confidence Analysis ────────────────────────────────
+    confidence_data = load_json("reports/scenario-confidence-report.json", {})
+    if confidence_data:
+        conf_summary = confidence_data.get("summary", {})
+        conf_records = confidence_data.get("records", [])
+        by_level = conf_summary.get("by_confidence_level", {})
+        conf_signals = conf_summary.get("quality_signals", {})
+        gate_passed = conf_signals.get("confidence_gate_passed", True)
+        gate_icon = "✅" if gate_passed else "❌"
+
+        _CONF_ICON = {
+            "VERY_HIGH": "🟢", "HIGH": "🟡",
+            "MEDIUM": "🟠", "LOW": "🔴", "CRITICAL_GAP": "🚨",
+        }
+
+        emit("## Stage 2b · Scenario Confidence Analysis")
+        emit("")
+        emit(
+            f"Confidence gate: **{gate_icon} {'PASSED' if gate_passed else 'FAILED'}** — "
+            f"HIGH criticality requirements with LOW/CRITICAL_GAP confidence: "
+            f"{len(conf_signals.get('high_criticality_low_confidence', []))}"
+        )
+        emit("")
+
+        # Distribution summary
+        emit("| Level | Count | Meaning |")
+        emit("|-------|-------|---------|")
+        _level_meanings = {
+            "VERY_HIGH":    "All key dimensions covered; minor gaps acceptable",
+            "HIGH":         "Core flow validated; some coverage classes missing",
+            "MEDIUM":       "Happy path present but important gaps exist",
+            "LOW":          "Significant gaps — Kane failure or no negative tests on critical feature",
+            "CRITICAL_GAP": "No scenario mapped — zero automated coverage",
+        }
+        for lvl in ("VERY_HIGH", "HIGH", "MEDIUM", "LOW", "CRITICAL_GAP"):
+            cnt = by_level.get(lvl, 0)
+            icon = _CONF_ICON.get(lvl, "⚪")
+            emit(f"| {icon} {lvl} | {cnt} | {_level_meanings[lvl]} |")
+        emit("")
+
+        # Per-requirement confidence table
+        emit("### Requirement Confidence Detail")
+        emit("")
+        emit("| Requirement | Scenario | Feature | Criticality | Confidence | Kane | Top Gap | Recommendation |")
+        emit("|-------------|----------|---------|-------------|------------|------|---------|----------------|")
+        for r in conf_records:
+            icon = _CONF_ICON.get(r.get("confidence_level", ""), "⚪")
+            kane_icon = "✅" if r.get("coverage_dimensions", {}).get("kane_verified") else "❌"
+            sc_disp = f"`{r['scenario_id']}`" if r.get("scenario_id") else "—"
+            gaps = r.get("coverage_gaps", [])
+            recs = r.get("recommendations", [])
+            top_gap = gaps[0][:70] + "…" if gaps else "No major gaps"
+            top_rec = recs[0][:60] + "…" if recs else "Ready for execution"
+            emit(
+                f"| `{r['requirement_id']}` | {sc_disp} | {r.get('feature', '?')} "
+                f"| {r.get('criticality', '?')} | {icon} {r.get('confidence_level', '?')} "
+                f"| {kane_icon} {r.get('kane_status', '?')} | {top_gap} | {top_rec} |"
+            )
+        emit("")
+
+        # High-risk detail (LOW / CRITICAL_GAP)
+        high_risk = [r for r in conf_records if r.get("confidence_level") in ("LOW", "CRITICAL_GAP")]
+        if high_risk:
+            emit("### High-Risk Requirements")
+            emit("")
+            emit("> The following requirements have LOW or CRITICAL_GAP confidence. "
+                 "Release without addressing these gaps carries elevated production risk.")
+            emit("")
+            for r in high_risk:
+                icon = _CONF_ICON.get(r["confidence_level"], "⚪")
+                emit(
+                    f"**{icon} `{r['requirement_id']}` — {r['feature']} "
+                    f"({r['criticality']} criticality, Kane: {r['kane_status']})**"
+                )
+                for gap in r.get("coverage_gaps", []):
+                    emit(f"- {gap}")
+                ra = r.get("risk_assessment") or {}
+                if ra.get("release_risk"):
+                    emit(f"> Release risk: {ra['release_risk']}")
+                emit("")
+
+        # Coverage gap summary rows
+        missing_neg = conf_summary.get("missing_negative_coverage", [])
+        missing_edge = conf_summary.get("missing_edge_case_coverage", [])
+        kane_fails = conf_summary.get("kane_failed_requirements", [])
+        no_mob = conf_summary.get("no_mobile_coverage", [])
+
+        if missing_neg or missing_edge or kane_fails or no_mob:
+            emit("### Coverage Gap Summary")
+            emit("")
+            if kane_fails:
+                emit(f"- 🔴 **Kane AI failures:** {', '.join(f'`{r}`' for r in kane_fails)} — happy path not validated")
+            if missing_neg:
+                emit(f"- ❌ **Missing negative coverage:** {', '.join(f'`{r}`' for r in missing_neg)}")
+            if missing_edge:
+                emit(f"- 🟡 **Missing edge case coverage:** {', '.join(f'`{r}`' for r in missing_edge)}")
+            if no_mob:
+                emit(f"- 📱 **Missing mobile/Android coverage:** {', '.join(f'`{r}`' for r in no_mob)}")
+            emit("")
+    emit("")
+
     # ── Stage 3: Test Generation ───────────────────────────────────────────────
     emit("## Stage 3 · Generated Playwright Tests")
     emit("")

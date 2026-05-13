@@ -832,6 +832,25 @@ async def main() -> None:
         "Output":     "scenarios/scenarios.json",
     })
 
+    # ── Stage 2b: Scenario Confidence Analysis ────────────────────────────
+    try:
+        from scenario_confidence import run_confidence_analysis
+        _confidence_report = run_confidence_analysis(
+            requirements=requirements,
+            scenarios=scenarios,
+            playwright_bodies=PLAYWRIGHT_BODIES,
+        )
+        _conf_signals = _confidence_report.get("summary", {}).get("quality_signals", {})
+        if not _conf_signals.get("confidence_gate_passed", True):
+            _risky = _conf_signals.get("high_criticality_low_confidence", [])
+            print(
+                f"[confidence] WARNING: HIGH-criticality requirements with LOW/CRITICAL_GAP confidence: "
+                f"{', '.join(_risky)}",
+                file=sys.stderr,
+            )
+    except Exception as _conf_exc:
+        print(f"[confidence] WARNING: confidence analysis failed ({_conf_exc}) — continuing")
+
     # ── Stage 3: Generate tests from Kane AI code exports ─────────────────
     # collect_kane_exports.py is the authoritative Stage 3 generator.
     # It reads Kane's exported Python Playwright code from each session's
