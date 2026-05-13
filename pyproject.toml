@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentic-stlc"
@@ -65,7 +65,7 @@ Issues      = "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/issue
 Changelog   = "https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/blob/master/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
-include = ["platform*", "skills*", "adapters*", "cli*"]
+include = ["astlc*", "skills*", "adapters*", "cli*"]
 
 [tool.setuptools.package-data]
 "templates" = ["**/*"]

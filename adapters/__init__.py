@@ -10,7 +10,7 @@ from .kaneai import KaneAIAdapter
 from .playwright import PlaywrightAdapter
 
 # Auto-register adapters
-from platform.registry import AdapterRegistry
+from astlc.registry import AdapterRegistry
 
 AdapterRegistry.register("git",               "github",          GitHubAdapter)
 AdapterRegistry.register("git",               "gitlab",          GitLabAdapter)

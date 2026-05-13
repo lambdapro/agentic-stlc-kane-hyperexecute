@@ -13,7 +13,7 @@ from .rca import RCASkill
 from .claude_feedback import ClaudeFeedbackSkill
 
 # Auto-register all skills
-from platform.registry import SkillRegistry
+from astlc.registry import SkillRegistry
 
 SkillRegistry.register("requirement_parsing",      RequirementParsingSkill)
 SkillRegistry.register("scenario_generation",      ScenarioGenerationSkill)

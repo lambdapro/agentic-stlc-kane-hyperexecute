@@ -5,7 +5,8 @@ Parses plain-text acceptance criteria files into structured requirement
 objects. Supports multiple formats: acceptance_criteria, gherkin, plain.
 
 Input formats:
-  acceptance_criteria — "AC-001: user can ..." per line
+  acceptance_criteria — "AC-001: user can ..." per line, or plain lines
+                        under an "Acceptance Criteria:" section header
   gherkin             — Given/When/Then blocks
   plain               — one requirement per non-empty line
 
@@ -61,9 +62,25 @@ class RequirementParsingSkill(AgentSkill):
         output_path = Path(self.config.requirements_output if self.config else "requirements/analyzed_requirements.json")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        existing: list[dict] = []
         if output_path.exists():
-            existing = json.loads(output_path.read_text(encoding="utf-8"))
+            try:
+                existing = json.loads(output_path.read_text(encoding="utf-8"))
+            except Exception:
+                existing = []
             requirements = self._merge_with_existing(requirements, existing)
+
+        # Bug 7 guard: never overwrite existing Kane results with an empty parse.
+        # This happens when the requirements file uses plain-text format but the
+        # parser finds zero AC-NNN: patterns. Preserve existing data instead.
+        if not requirements and existing:
+            return {
+                "success": True,
+                "requirements": existing,
+                "total": len(existing),
+                "output": str(output_path),
+                "note": "parse returned 0 results; existing data preserved",
+            }
 
         output_path.write_text(json.dumps(requirements, indent=2) + "\n", encoding="utf-8")
         return {"success": True, "requirements": requirements, "total": len(requirements), "output": str(output_path)}
@@ -78,7 +95,11 @@ class RequirementParsingSkill(AgentSkill):
         return self._parse_plain(text, source_file)
 
     def _parse_ac(self, text: str, source_file: str) -> list[dict]:
-        """Parse 'AC-NNN: description' format with optional feature/user-story context."""
+        """Parse 'AC-NNN: description' lines.
+
+        Falls back to parsing plain lines under an 'Acceptance Criteria:' section
+        header when no AC-NNN patterns are present (e.g. requirements/search.txt).
+        """
         reqs = []
         ac_pattern = re.compile(r"^(AC-\d+)[:\s]+(.+)$", re.MULTILINE | re.IGNORECASE)
         current_feature = ""
@@ -104,6 +125,50 @@ class RequirementParsingSkill(AgentSkill):
                 "kane_steps": [],
                 "kane_duration_ms": 0,
             })
+
+        # No AC-NNN lines found — fall back to parsing the "Acceptance Criteria:" section
+        if not reqs:
+            reqs = self._parse_ac_section(text, source_file, current_feature, current_user_story)
+
+        return reqs
+
+    def _parse_ac_section(self, text: str, source_file: str,
+                          feature: str = "", user_story: str = "") -> list[dict]:
+        """Parse plain lines that appear under an 'Acceptance Criteria:' section header."""
+        reqs = []
+        in_ac_section = False
+        idx = 0
+        # Headers that signal the end of the AC block
+        stop_prefixes = (
+            "title:", "as a ", "i want", "so that",
+            "feature:", "user story:", "acceptance criteria:",
+        )
+
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            low = stripped.lower()
+            if low.startswith("acceptance criteria"):
+                in_ac_section = True
+                continue
+            if in_ac_section:
+                if any(low.startswith(p) for p in stop_prefixes):
+                    in_ac_section = False
+                    continue
+                idx += 1
+                reqs.append({
+                    "id": f"AC-{idx:03d}",
+                    "description": stripped,
+                    "feature": feature,
+                    "user_story": user_story,
+                    "source_file": source_file,
+                    "kane_status": "not_run",
+                    "kane_session_url": "",
+                    "kane_one_liner": "",
+                    "kane_steps": [],
+                    "kane_duration_ms": 0,
+                })
         return reqs
 
     def _parse_gherkin(self, text: str, source_file: str) -> list[dict]:

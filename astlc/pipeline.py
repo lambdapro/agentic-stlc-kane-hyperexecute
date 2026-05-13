@@ -5,13 +5,10 @@ Framework-agnostic, configuration-driven pipeline engine.
 Executes registered stages sequentially; each stage is a callable
 that receives (config, context) and returns a result dict.
 
-Stages are discovered from the `pipeline.stages` config key or from
-the built-in stage registry populated by skills/__init__.py.
-
 Usage::
 
-    from platform.pipeline import Pipeline
-    from platform.config import PlatformConfig
+    from astlc.pipeline import Pipeline
+    from astlc.config import PlatformConfig
 
     cfg = PlatformConfig.load()
     result = Pipeline(cfg).run()
@@ -19,6 +16,7 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 import time
 from datetime import datetime, timezone
@@ -29,7 +27,7 @@ from .config import PlatformConfig
 from .telemetry import Telemetry
 
 
-StageCallable = Callable[[PlatformConfig, dict], dict]
+StageCallable = Callable[[], dict]
 
 _BUILTIN_STAGES: dict[str, str] = {
     "1":   "skills.requirement_parsing:RequirementParsingSkill",
@@ -64,9 +62,9 @@ class Pipeline:
     """
     Configuration-driven pipeline executor.
 
-    Stages are executed sequentially. A failed CRITICAL stage halts the
-    pipeline; WARNING stages continue. Each stage receives the shared
-    context dict (mutable, stages can add keys for downstream stages).
+    Stages execute sequentially. CRITICAL failures halt the pipeline;
+    WARNING stages log and continue. The shared context dict is mutable
+    and updated by each stage so downstream stages can consume results.
     """
 
     def __init__(self, config: PlatformConfig) -> None:
@@ -82,16 +80,6 @@ class Pipeline:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def run(self, stage_ids: list[str] | None = None) -> dict:
-        """
-        Execute pipeline stages.
-
-        Args:
-            stage_ids: Optional list of stage IDs to run (subset execution).
-                       None = run all configured stages.
-
-        Returns:
-            Summary dict with success flag and per-stage results.
-        """
         Path(self.config.reports_dir).mkdir(parents=True, exist_ok=True)
         stages = self._resolve_stages(stage_ids)
 
@@ -110,14 +98,12 @@ class Pipeline:
         return summary
 
     def add_stage(self, stage_id: str, fn: StageCallable, severity: str = "CRITICAL") -> None:
-        """Dynamically add a stage (used by external orchestrators)."""
         self._dynamic_stages = getattr(self, "_dynamic_stages", [])
         self._dynamic_stages.append((stage_id, fn, severity))
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _resolve_stages(self, stage_ids: list[str] | None) -> list[tuple[str, StageCallable, str]]:
-        """Return ordered list of (id, callable, severity) tuples."""
         cfg_stages = (self.config.pipeline.as_dict().get("stages", [])
                       if self.config.pipeline else [])
 
@@ -133,7 +119,6 @@ class Pipeline:
                 resolved.append((sid, fn, s.get("severity", "CRITICAL")))
             return resolved
 
-        # Fall back to built-in stage map
         built_in = list(_BUILTIN_STAGES.items())
         resolved = []
         for sid, dotted in built_in:
@@ -142,6 +127,8 @@ class Pipeline:
             try:
                 cls = _load_class(dotted)
                 inst = cls(config=self.config, context=self._context)
+                # FIX Bug 3: skill.run() takes **inputs, not (cfg, ctx)
+                # Wrap in a zero-arg callable that ignores (cfg, ctx) convention
                 resolved.append((sid, inst.run, "CRITICAL"))
             except Exception as exc:
                 print(f"[pipeline] WARNING: could not load stage {sid} ({exc})")
@@ -154,18 +141,18 @@ class Pipeline:
                 cls = _load_class(dotted)
                 inst = cls(config=self.config, context=self._context)
                 return inst.run
-            return lambda cfg, ctx: {"skipped": True}
+            return lambda: {"skipped": True}
 
         p = Path(script_path)
-        if p.suffix == ".py":
+        if p.suffix == ".py" and p.exists():
             spec = importlib.util.spec_from_file_location(f"stage_{stage_id}", p)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             if hasattr(mod, "run"):
-                return lambda cfg, ctx: mod.run(cfg, ctx)
+                return lambda: mod.run(self.config, self._context)
             if hasattr(mod, "evaluate"):
-                return lambda cfg, ctx: mod.evaluate()
-        return lambda cfg, ctx: {"skipped": True, "reason": f"unknown script: {script_path}"}
+                return lambda: mod.evaluate()
+        return lambda: {"skipped": True, "reason": f"unknown script: {script_path}"}
 
     def _run_stage(self, stage_id: str, fn: StageCallable) -> StageResult:
         self.telemetry.stage_start(stage_id, stage_id)
@@ -173,7 +160,8 @@ class Pipeline:
         success = True
         data: dict = {}
         try:
-            result = fn(self.config, self._context)
+            # Skills use run(**inputs); call with no args (context already in instance)
+            result = fn()
             if isinstance(result, dict):
                 data = result
                 self._context.update({f"stage_{stage_id}": data})
@@ -198,12 +186,7 @@ class Pipeline:
             "failed_stages": len(failed),
             "total_duration_s": total_elapsed,
             "stages": [
-                {
-                    "id": r.stage_id,
-                    "name": r.name,
-                    "success": r.success,
-                    "duration_s": r.duration_s,
-                }
+                {"id": r.stage_id, "name": r.name, "success": r.success, "duration_s": r.duration_s}
                 for r in self._results
             ],
         }

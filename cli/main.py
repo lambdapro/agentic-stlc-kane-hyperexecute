@@ -4,13 +4,13 @@ Agentic STLC CLI
 Entry point for the `agentic-stlc` command.
 
 Commands:
-  run      — execute the full pipeline end-to-end
-  analyze  — run requirement analysis (Stage 1) only
-  generate — generate Playwright tests from scenarios
-  report   — re-generate all reports from existing artifacts
-  status   — show current pipeline status / latest run results
-  init     — scaffold a new agentic-stlc.config.yaml in the current directory
-  validate — validate config + check required tools are installed
+  run      - execute the full pipeline end-to-end
+  analyze  - run requirement analysis (Stage 1) only
+  generate - generate Playwright tests from scenarios
+  report   - re-generate all reports from existing artifacts
+  status   - show current pipeline status / latest run results
+  init     - scaffold a new agentic-stlc.config.yaml in the current directory
+  validate - validate config + check required tools are installed
 
 Examples:
   agentic-stlc run
@@ -29,12 +29,20 @@ import os
 import sys
 from pathlib import Path
 
-# Allow running from repo root without installing
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# FIX Bug 1: Force UTF-8 output on all platforms (Windows cp1252 crashes on emoji)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Ensure project root is on sys.path for local source runs
+_ROOT = str(Path(__file__).parent.parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 
 def _load_config(args: argparse.Namespace):
-    from platform.config import PlatformConfig
+    from astlc.config import PlatformConfig
     config_path = getattr(args, "config", None) or "agentic-stlc.config.yaml"
     cfg = PlatformConfig.load(config_path)
     errors = cfg.validate()
@@ -47,53 +55,48 @@ def _load_config(args: argparse.Namespace):
 # ── Command handlers ──────────────────────────────────────────────────────────
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Run the full pipeline."""
+    """Run the full pipeline via the existing ci/agent.py orchestrator."""
     cfg = _load_config(args)
-
-    # Override config with CLI flags
     data = cfg.as_dict()
+
     if getattr(args, "repo", None):
         data.setdefault("project", {})["repository"] = args.repo
     if getattr(args, "branch", None):
         data.setdefault("project", {})["branch"] = args.branch
     if getattr(args, "full", False):
         data.setdefault("execution", {})["mode"] = "full"
+        os.environ["FULL_RUN"] = "true"
     if getattr(args, "target_url", None):
         data.setdefault("target", {})["url"] = args.target_url
+        os.environ["TARGET_URL"] = args.target_url
     if getattr(args, "requirements", None):
         data.setdefault("requirements", {})["paths"] = [args.requirements]
 
-    from platform.config import PlatformConfig
-    from platform.pipeline import Pipeline
-    cfg2 = PlatformConfig.from_dict(data)
-    result = Pipeline(cfg2).run()
-
-    print(f"\n{'=' * 60}")
-    if result["success"]:
-        print(f"  Pipeline PASSED  ({result['passed_stages']}/{result['total_stages']} stages)")
-    else:
-        print(f"  Pipeline FAILED  ({result['failed_stages']} stages failed)")
-    print(f"  Duration: {result['total_duration_s']:.1f}s")
-    print(f"{'=' * 60}")
-    return 0 if result["success"] else 1
+    # Delegate to the existing battle-tested orchestrator
+    import subprocess
+    result = subprocess.run([sys.executable, "ci/agent.py"])
+    return result.returncode
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
-    """Run KaneAI requirement analysis only."""
+    """Run KaneAI requirement analysis only (Stage 1)."""
     cfg = _load_config(args)
 
+    # FIX Bug 9: Pass requirements as CLI arg, not env var
     req_paths = ([args.requirements] if getattr(args, "requirements", None)
                  else cfg.as_dict().get("requirements", {}).get("paths", []))
 
     if not req_paths:
-        print("ERROR: No requirements files specified.")
+        print("ERROR: No requirements files specified. Use --requirements FILE")
         return 1
 
-    # Delegate to existing analyze_requirements.py for now
     import subprocess
+    cmd = [sys.executable, "ci/analyze_requirements.py"]
+    # Pass paths via env var that analyze_requirements.py actually reads
     env = dict(os.environ)
-    env["REQUIREMENTS_PATHS"] = ",".join(req_paths)
-    result = subprocess.run([sys.executable, "ci/analyze_requirements.py"], env=env)
+    if len(req_paths) == 1:
+        env["REQUIREMENTS_FILE"] = req_paths[0]
+    result = subprocess.run(cmd, env=env)
     return result.returncode
 
 
@@ -102,15 +105,15 @@ def cmd_generate(args: argparse.Namespace) -> int:
     cfg = _load_config(args)
 
     sc_path = getattr(args, "scenarios", None) or str(cfg.scenarios_path)
-    target_url = getattr(args, "target_url", None) or cfg.target.url or ""
+    target_url = getattr(args, "target_url", None) or (cfg.target.url if cfg.target else "") or ""
 
     from skills.playwright_generation import PlaywrightGenerationSkill
     skill = PlaywrightGenerationSkill(config=cfg)
     result = skill.run(scenarios_path=sc_path, target_url=target_url)
     if result["success"]:
-        print(f"Generated {result['tests_generated']} tests → {result['test_file']}")
+        print(f"Generated {result['tests_generated']} tests -> {result['test_file']}")
     else:
-        print(f"Generation failed: {result.get('error', 'unknown')}")
+        print(f"ERROR: Generation failed: {result.get('error', 'unknown')}")
     return 0 if result["success"] else 1
 
 
@@ -118,7 +121,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     """Re-generate reports from existing artifacts."""
     import subprocess
     output = getattr(args, "output", "reports")
-    print(f"Generating reports → {output}/")
+    print(f"Generating reports -> {output}/")
     result = subprocess.run([sys.executable, "ci/write_github_summary.py"])
     return result.returncode
 
@@ -130,36 +133,77 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("No reports found. Run `agentic-stlc run` first.")
         return 1
 
-    # Release recommendation
-    rec_path = reports / "release_recommendation.json"
-    if rec_path.exists():
-        rec = json.loads(rec_path.read_text(encoding="utf-8"))
-        verdict  = rec.get("verdict", "UNKNOWN")
-        icon = {"GREEN": "🟢", "YELLOW": "🟡", "RED": "🔴"}.get(verdict, "⚪")
-        print(f"\n{icon}  Verdict: {verdict}")
-        print(f"   Pass rate: {rec.get('pass_rate', 0)}%")
+    found_anything = False
+
+    # FIX Bug 8: Try JSON first, fall back to MD for release recommendation
+    rec_path_json = reports / "release_recommendation.json"
+    rec_path_md   = reports / "release_recommendation.md"
+
+    if rec_path_json.exists():
+        try:
+            rec = json.loads(rec_path_json.read_text(encoding="utf-8"))
+            verdict  = rec.get("verdict", "UNKNOWN")
+            icon = {"GREEN": "[GREEN]", "YELLOW": "[YELLOW]", "RED": "[RED]"}.get(verdict, "[?]")
+            print(f"\n{icon}  Verdict: {verdict}")
+            print(f"   Pass rate: {rec.get('pass_rate', 0)}%")
+            found_anything = True
+        except Exception:
+            pass
+    elif rec_path_md.exists():
+        # Parse verdict from markdown header line
+        for line in rec_path_md.read_text(encoding="utf-8").splitlines():
+            if "GREEN" in line or "YELLOW" in line or "RED" in line:
+                verdict = "GREEN" if "GREEN" in line else ("YELLOW" if "YELLOW" in line else "RED")
+                icon = {"GREEN": "[GREEN]", "YELLOW": "[YELLOW]", "RED": "[RED]"}.get(verdict, "[?]")
+                print(f"\n{icon}  Verdict: {verdict}")
+                found_anything = True
+                break
+
+    # Traceability matrix
+    matrix_path = reports / "traceability_matrix.json"
+    if matrix_path.exists():
+        try:
+            matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+            summary = matrix.get("summary", {})
+            print(f"\n   Coverage: {summary.get('coverage_pct', 0)}%")
+            print(f"   Requirements: {summary.get('total_requirements', 0)} total, "
+                  f"{summary.get('fully_covered', summary.get('covered', 0))} covered")
+            found_anything = True
+        except Exception:
+            pass
 
     # Quality gates
     qg_path = reports / "quality_gates.json"
     if qg_path.exists():
-        qg = json.loads(qg_path.read_text(encoding="utf-8"))
-        total = len(qg.get("gates", []))
-        crits = qg.get("critical_failures", 0)
-        warns = qg.get("warnings", 0)
-        gate_icon = "✅" if qg.get("gates_passed") else "❌"
-        print(f"\n{gate_icon}  Quality gates: {total - crits - warns}/{total} passed")
-        print(f"   Critical failures: {crits} | Warnings: {warns}")
+        try:
+            qg = json.loads(qg_path.read_text(encoding="utf-8"))
+            total = len(qg.get("gates", []))
+            crits = qg.get("critical_failures", 0)
+            warns = qg.get("warnings", 0)
+            gate_icon = "[PASS]" if qg.get("gates_passed") else "[FAIL]"
+            print(f"\n{gate_icon}  Quality gates: {total - crits - warns}/{total} passed")
+            print(f"   Critical failures: {crits} | Warnings: {warns}")
+            found_anything = True
+        except Exception:
+            pass
 
     # Confidence
     conf_path = reports / "scenario-confidence-report.json"
     if conf_path.exists():
-        conf = json.loads(conf_path.read_text(encoding="utf-8"))
-        by_level = conf.get("summary", {}).get("by_confidence_level", {})
-        print(f"\n   Confidence distribution:")
-        for level, count in by_level.items():
-            if count:
-                print(f"   {level}: {count}")
+        try:
+            conf = json.loads(conf_path.read_text(encoding="utf-8"))
+            by_level = conf.get("summary", {}).get("by_confidence_level", {})
+            if by_level:
+                print(f"\n   Confidence distribution:")
+                for level, count in by_level.items():
+                    if count:
+                        print(f"     {level}: {count}")
+                found_anything = True
+        except Exception:
+            pass
 
+    if not found_anything:
+        print("No pipeline results found. Run `agentic-stlc run` first.")
     return 0
 
 
@@ -169,16 +213,22 @@ def cmd_init(args: argparse.Namespace) -> int:
     template = Path(__file__).parent.parent / "templates/config/agentic-stlc.config.yaml.example"
     if dest.exists():
         print(f"Config already exists: {dest}")
+        print("Delete it first or edit it directly.")
         return 1
     if template.exists():
         import shutil
         shutil.copy(str(template), str(dest))
-        print(f"Created {dest} from template. Edit it to match your project.")
+        print(f"Created {dest} from template.")
+        print("Next steps:")
+        print("  1. Edit agentic-stlc.config.yaml - set project.repository and target.url")
+        print("  2. Run: agentic-stlc validate")
+        print("  3. Run: agentic-stlc run")
     else:
-        print(f"Template not found at {template}. Writing minimal config.")
         dest.write_text(
-            "version: '1.0'\nproject:\n  name: my-app\n  repository: ''\n", encoding="utf-8"
+            "version: '1.0'\nproject:\n  name: my-app\n  repository: ''\ntarget:\n  url: ''\n",
+            encoding="utf-8",
         )
+        print(f"Created minimal {dest}. Edit it to match your project.")
     return 0
 
 
@@ -186,22 +236,41 @@ def cmd_validate(args: argparse.Namespace) -> int:
     """Validate config and check required tools."""
     cfg = _load_config(args)
     errors = cfg.validate()
+
     print(f"\nConfig validation: {'PASS' if not errors else 'FAIL'}")
     for e in errors:
         print(f"  ERROR: {e}")
 
-    # Tool checks
+    # Tool availability checks (ASCII-safe output for cross-platform)
     import shutil
-    tools = {"python": sys.executable, "kane-cli": "kane-cli", "node": "node"}
-    for name, binary in tools.items():
-        found = bool(shutil.which(binary))
-        icon = "✅" if found else "❌"
-        print(f"  {icon} {name}: {'found' if found else 'NOT FOUND'}")
+    checks = [
+        ("python3 / py",  sys.executable),
+        ("kane-cli",      shutil.which("kane-cli") or ""),
+        ("node",          shutil.which("node") or ""),
+        ("git",           shutil.which("git") or ""),
+    ]
+    print("\nTool availability:")
+    for name, path_or_cmd in checks:
+        if path_or_cmd and (Path(path_or_cmd).exists() or shutil.which(path_or_cmd.split()[0])):
+            print(f"  [OK]      {name}: {path_or_cmd}")
+        else:
+            found = shutil.which(name.split("/")[0].strip()) or shutil.which(name.split()[0])
+            if found:
+                print(f"  [OK]      {name}: {found}")
+            else:
+                print(f"  [MISSING] {name}: not found on PATH")
 
-    # HyperExecute CLI
     he_candidates = ["./hyperexecute", "./hyperexecute.exe", "hyperexecute"]
-    he_found = any(Path(c).exists() for c in he_candidates)
-    print(f"  {'✅' if he_found else '❌'} hyperexecute: {'found' if he_found else 'NOT FOUND'}")
+    he_found = any(Path(c).exists() or bool(__import__('shutil').which(c.lstrip('./')))
+                   for c in he_candidates)
+    print(f"  {'[OK]     ' if he_found else '[MISSING]'} hyperexecute: {'found' if he_found else 'not found'}")
+
+    # Config file check
+    config_path = getattr(args, "config", None) or "agentic-stlc.config.yaml"
+    print(f"\nConfig file: {config_path} ({'EXISTS' if Path(config_path).exists() else 'NOT FOUND - using defaults'})")
+    print(f"  project.name:   {cfg.project.name if cfg.project else '(not set)'}")
+    print(f"  target.url:     {cfg.target.url if cfg.target else '(not set)'}")
+    print(f"  execution.mode: {cfg.execution.mode if cfg.execution else 'incremental'}")
 
     return 0 if not errors else 1
 
@@ -211,7 +280,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-stlc",
-        description="Agentic STLC Platform — autonomous QA orchestration",
+        description="Agentic STLC Platform -- autonomous QA orchestration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -220,32 +289,32 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     # run
-    p_run = subparsers.add_parser("run", help="Execute full pipeline")
-    p_run.add_argument("--repo",        metavar="URL",  help="Target repository URL")
-    p_run.add_argument("--branch",      metavar="BRANCH", default="", help="Git branch")
-    p_run.add_argument("--requirements", metavar="FILE", help="Requirements file path")
-    p_run.add_argument("--target-url",  metavar="URL",  help="Application URL under test")
-    p_run.add_argument("--full",        action="store_true", help="Run all scenarios (not incremental)")
-    p_run.add_argument("--stages",      metavar="IDS",  help="Comma-separated stage IDs to run")
+    p_run = subparsers.add_parser("run", help="Execute full pipeline end-to-end")
+    p_run.add_argument("--repo",         metavar="URL",    help="Repository URL (overrides config)")
+    p_run.add_argument("--branch",       metavar="BRANCH", default="", help="Git branch")
+    p_run.add_argument("--requirements", metavar="FILE",   help="Requirements file path")
+    p_run.add_argument("--target-url",   metavar="URL",    dest="target_url", help="Application URL")
+    p_run.add_argument("--full",         action="store_true", help="Run all scenarios (not incremental)")
+    p_run.add_argument("--stages",       metavar="IDS",    help="Comma-separated stage IDs e.g. 2b,7a")
 
     # analyze
-    p_ana = subparsers.add_parser("analyze", help="Run KaneAI requirement analysis")
+    p_ana = subparsers.add_parser("analyze", help="Run KaneAI requirement analysis (Stage 1)")
     p_ana.add_argument("--requirements", metavar="FILE", help="Requirements file path")
 
     # generate
     p_gen = subparsers.add_parser("generate", help="Generate Playwright tests from scenarios")
     p_gen.add_argument("--scenarios",  metavar="FILE", help="scenarios.json path")
-    p_gen.add_argument("--target-url", metavar="URL",  help="Application URL under test")
+    p_gen.add_argument("--target-url", metavar="URL",  dest="target_url", help="Application URL")
 
     # report
     p_rep = subparsers.add_parser("report", help="Regenerate reports from existing artifacts")
     p_rep.add_argument("--output", metavar="DIR", default="reports", help="Report output directory")
 
     # status
-    subparsers.add_parser("status", help="Show latest pipeline status")
+    subparsers.add_parser("status", help="Show latest pipeline status and verdicts")
 
     # init
-    subparsers.add_parser("init", help="Scaffold agentic-stlc.config.yaml")
+    subparsers.add_parser("init", help="Scaffold agentic-stlc.config.yaml in current directory")
 
     # validate
     subparsers.add_parser("validate", help="Validate config and check tool availability")
