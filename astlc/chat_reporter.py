@@ -139,13 +139,51 @@ class ChatReporter:
         if he:
             shards   = he.get("shards", 0)
             duration = he.get("duration_s", 0)
-            lines += [
-                "## HyperExecute",
-                "",
-                f"- **{shards}** shards",
-                f"- **{round(duration / 60, 1)}m** execution time",
-                "",
-            ]
+            he_passed = he.get("passed", 0)
+            he_failed = he.get("failed", 0)
+            he_flaky  = he.get("flaky", 0)
+            he_dash   = he.get("dashboard", "")
+            lines += ["## HyperExecute", ""]
+            lines.append(f"- **{shards}** parallel shard(s)")
+            lines.append(f"- **{round(duration / 60, 1)}m** total execution time")
+            if he_passed or he_failed or he_flaky:
+                lines.append(f"- Passed: **{he_passed}** | Failed: **{he_failed}** | Flaky: **{he_flaky}**")
+            if he_dash:
+                lines.append(f"- [HyperExecute Dashboard]({he_dash})")
+            lines.append("")
+
+        # Quality gates
+        qg = result.get("quality_gates", {})
+        if qg:
+            gates        = qg.get("gates", [])
+            crit_fail    = qg.get("critical_failures", 0)
+            warns        = qg.get("warnings", 0)
+            gates_passed = qg.get("gates_passed", False)
+            icon = "[PASS]" if gates_passed else "[FAIL]"
+            lines += ["## Quality Gates", ""]
+            lines.append(f"**{icon}** {len(gates) - crit_fail - warns}/{len(gates)} gates passed")
+            if crit_fail:
+                lines.append(f"- **{crit_fail}** critical failure(s)")
+            if warns:
+                lines.append(f"- **{warns}** warning(s)")
+            for g in gates[:5]:
+                g_icon = "[PASS]" if g.get("passed") else "[FAIL]"
+                lines.append(f"  {g_icon} {g.get('name', '')}: {g.get('message', '')}")
+            lines.append("")
+
+        # GitHub Actions job breakdown
+        monitor = result.get("monitor", {})
+        gh_jobs = monitor.get("github", {}).get("jobs", [])
+        if gh_jobs:
+            lines += ["## GitHub Actions Jobs", ""]
+            for j in gh_jobs:
+                icon = "[PASS]" if j.get("conclusion") == "success" else (
+                    "[SKIP]" if j.get("conclusion") == "skipped" else "[FAIL]"
+                )
+                dur = j.get("duration_s", 0)
+                dur_str = f" ({round(dur / 60, 1)}m)" if dur else ""
+                lines.append(f"- {icon} **{j['name']}**{dur_str}: {j.get('conclusion', j.get('status', ''))}")
+            lines.append("")
 
         # RCA
         rca = result.get("rca", {})

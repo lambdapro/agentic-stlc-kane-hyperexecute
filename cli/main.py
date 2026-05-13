@@ -299,6 +299,93 @@ def cmd_chat(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    """Set/check pipeline credentials and configuration."""
+    action = getattr(args, "action", "show")
+
+    if action == "check":
+        from astlc.credential_validator import CredentialValidator
+        repo_url = getattr(args, "repo", "") or os.environ.get("GITHUB_REPOSITORY", "")
+        validator = CredentialValidator()
+        report = validator.validate(repo_url=repo_url)
+
+        print("\nCredential Check")
+        print("=" * 40)
+        _icon = lambda ok: "[OK]    " if ok else "[MISSING]"
+        print(f"{_icon(report.github_token)} GITHUB_TOKEN{' (scope: ' + report.github_token_scope + ')' if report.github_token_scope else ''}")
+        print(f"{_icon(report.lt_username)}  LT_USERNAME")
+        print(f"{_icon(report.lt_access_key)} LT_ACCESS_KEY")
+        print(f"{_icon(report.repo_url)}  Repository URL{': ' + report.repo_slug if report.repo_slug else ''}")
+
+        if report.lt_credentials_valid is True:
+            print("            LambdaTest API: verified OK")
+        elif report.lt_credentials_valid is False:
+            print("            LambdaTest API: INVALID credentials")
+
+        if report.warnings:
+            print("\nWarnings:")
+            for w in report.warnings:
+                print(f"  ! {w}")
+
+        if report.errors:
+            print("\nErrors:")
+            for e in report.errors:
+                print(f"  X {e}")
+            print()
+            print(report.onboarding_message() if hasattr(report, "onboarding_message") else "")
+            return 1
+
+        print("\nAll credentials valid. Ready to run.")
+        return 0
+
+    elif action == "set":
+        key   = getattr(args, "key", "")
+        value = getattr(args, "value", "")
+        if not key or not value:
+            print("Usage: agentic-stlc config set KEY VALUE")
+            print("  Keys: GITHUB_TOKEN, LT_USERNAME, LT_ACCESS_KEY")
+            return 1
+
+        allowed = {"GITHUB_TOKEN", "LT_USERNAME", "LT_ACCESS_KEY"}
+        if key not in allowed:
+            print(f"Unknown key '{key}'. Allowed: {', '.join(sorted(allowed))}")
+            return 1
+
+        # Write to .env file in project root
+        env_path = Path(".env")
+        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+        updated = False
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[i] = f"{key}={value}"
+                updated = True
+                break
+        if not updated:
+            lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"Set {key} in {env_path}")
+        print("Load it in your shell: source .env  (or restart terminal)")
+        return 0
+
+    else:  # show
+        cfg = _load_config(args)
+        print("\nAgentic STLC Configuration")
+        print("=" * 40)
+        print(f"  project.name:       {cfg.project.name if cfg.project else '(not set)'}")
+        print(f"  project.repository: {cfg.project.repository if cfg.project else '(not set)'}")
+        print(f"  target.url:         {cfg.target.url if cfg.target else '(not set)'}")
+        print(f"  execution.mode:     {cfg.execution.mode if cfg.execution else 'incremental'}")
+        print()
+        print("Environment:")
+        for var in ("GITHUB_TOKEN", "LT_USERNAME", "LT_ACCESS_KEY"):
+            val = os.environ.get(var, "")
+            masked = (val[:4] + "***" + val[-4:]) if len(val) > 8 else ("***" if val else "(not set)")
+            print(f"  {var}: {masked}")
+        print()
+        print("Run 'agentic-stlc config check' to verify credentials.")
+        return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate config and check required tools."""
     cfg = _load_config(args)
@@ -386,6 +473,16 @@ def build_parser() -> argparse.ArgumentParser:
     # validate
     subparsers.add_parser("validate", help="Validate config and check tool availability")
 
+    # config
+    p_cfg = subparsers.add_parser("config", help="Show, set, or check credentials and configuration")
+    p_cfg_sub = p_cfg.add_subparsers(dest="action", metavar="ACTION")
+    p_cfg_sub.add_parser("show",  help="Show current configuration and masked credentials")
+    p_cfg_check = p_cfg_sub.add_parser("check", help="Verify all credentials are set and valid")
+    p_cfg_check.add_argument("--repo", metavar="URL", help="Repository URL to verify access for")
+    p_cfg_set = p_cfg_sub.add_parser("set", help="Set a credential in .env file")
+    p_cfg_set.add_argument("key",   help="Credential key (GITHUB_TOKEN, LT_USERNAME, LT_ACCESS_KEY)")
+    p_cfg_set.add_argument("value", help="Value to set")
+
     # chat  (chat-first autonomous mode)
     p_chat = subparsers.add_parser("chat", help="Chat-first autonomous QA workflow: upload requirements -> results in chat")
     p_chat.add_argument("--requirements", metavar="FILE",   help="Requirements file path (txt/md/yaml/json)")
@@ -410,6 +507,7 @@ def main() -> int:
         "init":     cmd_init,
         "validate": cmd_validate,
         "chat":     cmd_chat,
+        "config":   cmd_config,
     }
 
     if not args.command:

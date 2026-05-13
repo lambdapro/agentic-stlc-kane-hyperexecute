@@ -28,6 +28,9 @@ from typing import Any, Callable
 from .config import PlatformConfig
 from .file_ingestor import FileIngestor
 from .chat_reporter import ChatReporter
+from .credential_validator import CredentialValidator
+from .pipeline_monitor import PipelineMonitor
+from .report_collector import ReportCollector
 
 
 UpdateFn = Callable[[str], None]
@@ -192,61 +195,132 @@ class ConversationalOrchestrator:
         else:
             self._emit(f"Git commit skipped: {git_result.get('error', 'unknown')}")
 
-        # ── Stage 4b: Trigger GitHub Actions ─────────────────────────────────
+        # ── Stage 4b: Credential validation + GitHub Actions trigger ─────────
         run_id  = ""
         run_url = ""
-        if repo_url and os.environ.get("GITHUB_TOKEN"):
+        he_job_id = ""
+        cred_report = None
+
+        if auto_push and repo_url:
+            self._emit("Validating pipeline credentials...")
+            validator   = CredentialValidator()
+            cred_report = validator.validate(repo_url=repo_url)
+
+            if cred_report.errors:
+                # Hard stop — surface actionable onboarding message
+                onboard_md = cred_report.onboarding_message()
+                return {
+                    "status":   "error",
+                    "stage":    "credentials",
+                    "error":    "Missing or invalid credentials. See markdown for setup instructions.",
+                    "markdown": onboard_md,
+                }
+
+            if cred_report.warnings:
+                for w in cred_report.warnings:
+                    self._emit(f"Credential warning: {w}")
+
             self._emit("Triggering GitHub Actions workflow...")
             trigger = self._trigger_workflow(repo_url, branch, target_url)
             run_id  = trigger.get("run_id", "")
             run_url = trigger.get("html_url", "")
             if run_id:
-                self._emit(f"Workflow triggered: run #{run_id}")
+                self._emit(f"Workflow triggered: run #{run_id}  {run_url}")
             else:
                 self._emit("Workflow trigger failed or returned no run ID.")
         else:
-            self._emit("Skipping GitHub Actions trigger (no GITHUB_TOKEN or repo_url).")
+            missing = []
+            if not repo_url:
+                missing.append("repository URL (--repo)")
+            if not os.environ.get("GITHUB_TOKEN"):
+                missing.append("GITHUB_TOKEN")
+            self._emit(
+                f"Skipping CI pipeline trigger — missing: {', '.join(missing)}. "
+                "Running local validation only."
+            )
 
-        # ── Stage 5: Monitor workflow ─────────────────────────────────────────
+        # ── Stage 5: Monitor workflow + HyperExecute concurrently ────────────
         monitor_result: dict = {}
         if run_id:
-            self._emit("Monitoring GitHub Actions workflow...")
-            monitor_result = self._monitor_workflow(run_id, repo_url)
+            self._emit("Monitoring GitHub Actions workflow and HyperExecute in real time...")
+            repo_slug = repo_url
+            if repo_slug.startswith("https://github.com/"):
+                repo_slug = repo_slug.removeprefix("https://github.com/").rstrip("/")
+            pm = PipelineMonitor(
+                repo_slug=repo_slug,
+                on_update=self.on_update,
+            )
+            monitor_result = pm.run(run_id=run_id, he_job_id=he_job_id)
+            he_info = monitor_result.get("hyperexecute", {})
+            if he_info:
+                self._emit(
+                    f"HyperExecute: {he_info.get('shards', 0)} shards | "
+                    f"Passed: {he_info.get('passed', 0)}, "
+                    f"Failed: {he_info.get('failed', 0)}, "
+                    f"Flaky: {he_info.get('flaky', 0)}"
+                )
 
-        # ── Stage 6: Collect artifacts ────────────────────────────────────────
+        # ── Stage 6: Collect and parse artifacts ──────────────────────────────
         self._emit("Collecting reports and artifacts...")
-        self._collect_artifacts(run_id, repo_url)
+        repo_slug_for_collect = ""
+        if repo_url and repo_url.startswith("https://github.com/"):
+            repo_slug_for_collect = repo_url.removeprefix("https://github.com/").rstrip("/")
+        collector = ReportCollector(
+            repo_slug=repo_slug_for_collect,
+            reports_dir=self._reports_dir,
+            on_update=self.on_update,
+        )
+        collected = collector.collect(run_id=run_id)
 
         # ── Stage 7: Coverage analysis ────────────────────────────────────────
         self._emit("Running coverage analysis...")
         coverage_result = self._coverage_analysis(requirements, scenarios)
+        # Merge collected coverage if local CoverageSkill has no data
+        coverage_summary = coverage_result.get("coverage", {}).get("summary", {})
+        if not coverage_summary and collected.get("coverage"):
+            coverage_summary = collected["coverage"]
 
         # ── Stage 8: RCA ──────────────────────────────────────────────────────
         self._emit("Performing root cause analysis...")
         rca = self._run_rca()
+        # Merge downloaded RCA failures if local skill produced none
+        if not rca.get("failures") and collected.get("rca", {}).get("failures"):
+            rca["failures"] = collected["rca"]["failures"]
 
         # ── Stage 9: Build verdict ────────────────────────────────────────────
         self._emit("Generating final summary...")
         verdict = self._compute_verdict(coverage_result)
 
-        # Correct key path: CoverageAnalysisSkill returns {"coverage": {"summary": {...}}, ...}
-        coverage_summary = coverage_result.get("coverage", {}).get("summary", {})
+        # Build HyperExecute summary from monitor or collected data
+        he_monitor = monitor_result.get("hyperexecute", {})
+        he_summary = {
+            "shards":     he_monitor.get("shards", 0) or self._parse_he_summary().get("shards", 0),
+            "duration_s": he_monitor.get("duration_s", 0) or self._parse_he_summary().get("duration_s", 0),
+            "passed":     he_monitor.get("passed", 0),
+            "failed":     he_monitor.get("failed", 0),
+            "flaky":      he_monitor.get("flaky", 0),
+            "dashboard":  he_monitor.get("dashboard", self._he_dashboard_url()),
+        }
+
+        # Execution: prefer collected (from CI artifact) over local junit
+        execution = collected.get("execution") or self._parse_junit()
 
         # ── Assemble result ───────────────────────────────────────────────────
         result = {
             "status":       "complete",
             "verdict":      verdict,
             "coverage":     coverage_summary,
-            "confidence":   confidence,
-            "execution":    self._parse_junit(),
-            "hyperexecute": self._parse_he_summary(),
+            "confidence":   collected.get("confidence", confidence),
+            "execution":    execution,
+            "hyperexecute": he_summary,
+            "quality_gates": collected.get("quality_gates", {}),
             "rca":          rca,
             "links": {
                 "github_actions":    run_url,
-                "hyperexecute":      self._he_dashboard_url(),
+                "hyperexecute":      he_summary.get("dashboard", ""),
                 "playwright_report": str(self._reports_dir / "report.html"),
             },
-            "git":    git_result,
+            "git":     git_result,
             "monitor": monitor_result,
         }
 
@@ -347,29 +421,6 @@ class ConversationalOrchestrator:
         except Exception as exc:
             print(f"[conv] trigger_workflow failed: {exc}", file=sys.stderr)
         return {}
-
-    def _monitor_workflow(self, run_id: str, repo_url: str) -> dict:
-        try:
-            from skills.workflow_monitor import WorkflowMonitorSkill
-            slug = repo_url
-            if slug.startswith("https://github.com/"):
-                slug = slug.removeprefix("https://github.com/").rstrip("/")
-            skill = WorkflowMonitorSkill(config=self.config, context={})
-            return skill.run(run_id=run_id, repo=slug, on_update=self.on_update)
-        except Exception as exc:
-            print(f"[conv] workflow_monitor failed: {exc}", file=sys.stderr)
-            return {}
-
-    def _collect_artifacts(self, run_id: str, repo_url: str) -> None:
-        if not run_id or not repo_url:
-            return
-        try:
-            from adapters.github import GitHubActionsAdapter
-            token = os.environ.get("GITHUB_TOKEN", "")
-            gh    = GitHubActionsAdapter(token=token, repo=repo_url)
-            gh.download_artifacts(run_id, str(self._reports_dir))
-        except Exception as exc:
-            print(f"[conv] collect_artifacts failed: {exc}", file=sys.stderr)
 
     def _coverage_analysis(self, requirements: list[dict], scenarios: list[dict]) -> dict:
         """Returns CoverageAnalysisSkill result: {"coverage": {"summary": {...}}, ...}"""

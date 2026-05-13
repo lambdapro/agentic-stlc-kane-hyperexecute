@@ -9,6 +9,9 @@ from .registry import SkillRegistry, AdapterRegistry
 from .conversation import ConversationalOrchestrator
 from .chat_reporter import ChatReporter
 from .file_ingestor import FileIngestor
+from .credential_validator import CredentialValidator
+from .pipeline_monitor import PipelineMonitor
+from .report_collector import ReportCollector
 
 __all__ = [
     "PlatformConfig",
@@ -18,4 +21,7 @@ __all__ = [
     "ConversationalOrchestrator",
     "ChatReporter",
     "FileIngestor",
+    "CredentialValidator",
+    "PipelineMonitor",
+    "ReportCollector",
 ]
