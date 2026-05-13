@@ -1,337 +1,1147 @@
-# Agentic STLC — Kane AI + HyperExecute
+# Agentic STLC — Autonomous QA Pipeline
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Pipeline Status](https://github.com/lambdapro/agentic-stlc/actions/workflows/agentic-stlc.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc/actions/workflows/agentic-stlc.yml)
+[![Pipeline](https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/actions/workflows/agentic-stlc.yml/badge.svg)](https://github.com/lambdapro/agentic-stlc-kane-hyperexecute/actions/workflows/agentic-stlc.yml)
+[![Platform](https://img.shields.io/badge/platform-LambdaTest-blue)](https://lambdatest.com)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
 
-> **Open source under the MIT License.** Fork it, adapt it, ship it.
-
-An end-to-end **Agentic Software Testing Lifecycle (STLC)** where plain-English requirements drive every stage of QA — from requirement analysis to parallel cloud execution and a final release verdict.
-
-**Kane AI** creates and runs functional test cases, verifying each acceptance criterion against the live app in real browser sessions. **HyperExecute** then executes those same tests as a full Playwright regression suite at scale, fanning them out across parallel cloud VMs simultaneously.
-
-The pipeline targets **Microsoft Teams Power Apps templates** (IssueReporting, Milestones, Bulletins) from the [teams-powerapps-app-templates](https://github.com/microsoft/teams-powerapps-app-templates) repo. Tests authenticate via Microsoft 365 and run against your deployed Power Apps environment.
+> Plain-English requirements go in. Executed, traced, and verdicted test results come out. No human writes a single test.
 
 ---
 
-## How the Agentic STLC works — 5 stages
+## What This Is
 
-> Commit your requirements. Everything else is automatic.
+**Agentic STLC** is a fully autonomous Software Testing Lifecycle pipeline. It ingests plain-English acceptance criteria, verifies them functionally with Kane AI on a live browser, generates executable Playwright regression tests from Kane's own exported code, executes those tests in parallel across Chrome, Firefox, Safari, and Android via LambdaTest HyperExecute, and produces a requirement-level traceability matrix with a GREEN / YELLOW / RED release verdict — all without a human touching test code.
 
-**Stage 1 — Kane AI analyzes and verifies each acceptance criterion (functional)**
-`ci/analyze_requirements.py` runs `kane-cli run` on each acceptance criterion against the live site. Kane AI drives a real browser, confirms the behaviour is observable, and records a pass/fail result with a session link per criterion. These are your **functional test cases** — created and executed entirely by Kane AI with no human scripting.
+The pipeline targets **[LambdaTest Ecommerce Playground](https://ecommerce-playground.lambdatest.io/)** and is designed to be adapted to any web application by editing `requirements/*.txt` and the fallback bodies in `ci/collect_kane_exports.py`.
 
-**Stage 2 — Scenario pool is synchronized**
-The orchestrator diffs the verified requirements against `scenarios/scenarios.json`. New requirements produce new scenario records; changed requirements mark their scenario as updated; removed requirements are deprecated. Nothing is deleted — the full history is preserved.
+### Business Value
 
-**Stage 3 — Selenium regression tests are generated**
-The orchestrator reads the scenario pool and writes a pytest test file (`tests/selenium/test_products.py`). Each scenario becomes one Selenium test function mapped back to its acceptance criterion — ready for regression execution at scale.
-
-**Stage 4 — HyperExecute runs regression at scale**
-The CI job downloads the HyperExecute CLI and submits the generated Selenium tests. HyperExecute fans them out across multiple cloud VMs simultaneously. Each VM runs one pytest node, opens a real browser on LambdaTest Grid via `conftest.py`, and uploads its artifacts on completion. This is the **regression at scale** phase — the same functional scenarios Kane AI verified, now stress-tested in parallel across browsers and platforms.
-
-**Stage 5 — Full traceability report with Functional + Regression results**
-`ci/build_traceability.py` maps every result back to its requirement, combining Kane AI functional results with HyperExecute regression results in a single traceability matrix. `ci/write_github_summary.py` writes a GitHub Actions summary with clickable links to the HyperExecute job, per-test LambdaTest Automate session videos, and Kane AI verification sessions. A GREEN / YELLOW / RED release verdict is generated from the combined data.
-
----
-
-## 🚀 Core Architecture
-
-| Tool | Role in the pipeline |
+| Stakeholder | What They Get |
 |---|---|
-| **Kane AI** (`@testmuai/kane-cli`) | Functional testing — verifies each acceptance criterion against the live Power App, creates functional test cases with real browser sessions, records pass/fail with session links |
-| **HyperExecute CLI** | Regression at scale — fans out the generated Playwright tests across parallel cloud VMs so all scenarios run simultaneously, not sequentially |
-| **Playwright (Python)** | Regression executor — each generated test drives a real browser on LambdaTest via CDP connection, supporting M365 login and Power Apps canvas UI |
-| **pytest + pytest-playwright** | Test orchestration framework — runs Playwright tests, captures pass/fail per node, uploads JUnit + HTML artifacts |
-| **Python CI Scripts** | Stage orchestrators — synchronize requirements, scenarios, generate test code, fetch results, and build reports |
+| **QA Lead** | Every requirement traced to a verified functional result AND a regression result across 4 browsers |
+| **Engineering** | Tests regenerate automatically when requirements change — zero manual maintenance |
+| **Release Manager** | Deterministic GREEN / YELLOW / RED verdict with evidence links per criterion |
+| **Exec / Demo** | One GitHub Actions summary page shows the complete end-to-end QA story |
 
 ---
 
-## 🛠️ How It Works
+## Architecture Overview
 
-**Edit your requirements, commit, push.** That's it.
+```
+requirements/*.txt          (plain-English acceptance criteria)
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STAGE 1 · KaneAI Functional Verification           [Job: analyze]  │
+│                                                                     │
+│  kane-cli run  ×N criteria  (5 parallel workers)                    │
+│  ├── Drives real Chrome browser on LambdaTest CDP                   │
+│  ├── Exports Python Playwright code per criterion                   │
+│  └── Emits: passed/failed, one_liner, steps, session link           │
+│                                                                     │
+│  Output: requirements/analyzed_requirements.json                    │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │  artifact upload → Job 2 download
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STAGES 2–9 · Orchestrator                       [Job: orchestrate] │
+│  ci/agent.py                                                        │
+│                                                                     │
+│  Stage 2 · Scenario Sync                                            │
+│  ├── Diffs requirements vs scenarios/scenarios.json                 │
+│  └── new / updated / active / deprecated — history never deleted    │
+│                                                                     │
+│  Stage 3 · Playwright Code Generation                               │
+│  ├── Priority 1: Kane-exported Python bodies (ci/collect_kane_exports.py) │
+│  ├── Priority 2: Curated fallback bodies (AC-001 through AC-015)    │
+│  ├── Syntax validates generated file (py_compile)                   │
+│  └── Output: tests/playwright/test_powerapps.py                     │
+│                                                                     │
+│  Stage 4 · Test Selection                                           │
+│  ├── Full run: all non-deprecated scenarios                         │
+│  ├── Incremental: only new + updated scenarios                      │
+│  └── Output: reports/pytest_selection.txt                           │
+│                                                                     │
+│  Stage 5 · HyperExecute Regression                                  │
+│  ├── Submits to LambdaTest HyperExecute (concurrency=5 VMs)        │
+│  ├── Each VM: pytest "$test" → conftest.py → LambdaTest CDP        │
+│  ├── Browsers: chrome, firefox, safari, android (real device)       │
+│  └── Output: job_id, per-test session links, JUnit XML              │
+│                                                                     │
+│  Stage 6 · Result Aggregation                                       │
+│  ├── MCP → HyperExecute API → LambdaTest Automation API (cascade)  │
+│  ├── normalize_artifacts.py merges conftest + JUnit + HE API       │
+│  └── Output: reports/normalized_results.json, api_details.json      │
+│                                                                     │
+│  Stage 7 · Traceability                                             │
+│  ├── Maps every result → requirement (Kane + Playwright combined)   │
+│  └── Output: reports/traceability_matrix.{md,json}                  │
+│                                                                     │
+│  Stage 8 · Release Recommendation                                   │
+│  └── GREEN (≥90% pass, full coverage) / YELLOW (≥75%) / RED (<75%) │
+│                                                                     │
+│  Stage 9 · GitHub Summary                                           │
+│  └── Full pipeline report written to GitHub Actions Step Summary    │
+│                                                                     │
+│  Advisory (non-blocking):                                           │
+│  ├── Coverage analysis, quality gates, impact analysis              │
+│  ├── LambdaTest AI root cause analysis for failed tests             │
+│  └── Pipeline metrics                                               │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
+---
+
+## Pipeline Stages — Complete Reference
+
+### Stage 1 · KaneAI Functional Verification
+
+**Script:** `ci/analyze_requirements.py`
+**CI job:** `analyze` (Job 1)
+
+Kane AI is a specialized browser automation agent — not a general-purpose LLM. It receives a task description and a target URL, drives a real Chrome browser via LambdaTest's CDP endpoint, and returns a structured NDJSON result per criterion.
+
+**What it does:**
+- Parses all `requirements/*.txt` files, extracting lines under `Acceptance Criteria:` sections
+- Assigns IDs `AC-001` through `AC-N` in order
+- Calls `kane-cli run` for each criterion via a `ThreadPoolExecutor` with 5 parallel workers
+- Each Kane session: real browser, video recorded, full session replay available
+- Parses NDJSON output: `step_end` events → step summaries, `run_end` event → overall result
+- **Code export:** Kane generates Python Playwright code for its browser actions via `--code-export --code-language python`. This exported code is stored at `~/.testmuai/kaneai/sessions/<session_id>/code-export/` and collected in Stage 3.
+
+**Inputs:**
+```
+requirements/search.txt         (primary requirements file)
+requirements/cart.txt           (additional requirements file)
+```
+
+**Outputs:**
+```
+requirements/analyzed_requirements.json   — full Kane results per AC
+reports/kane_results.json                 — summarized Kane results
+```
+
+**Per-criterion record:**
+```json
+{
+  "id": "AC-001",
+  "title": "Add a product to the cart",
+  "description": "User can add a product to the cart from the product detail page",
+  "kane_status": "passed",
+  "kane_one_liner": "Searched for products on ecommerce-playground.lambdatest.io",
+  "kane_summary": "...",
+  "kane_steps": ["Navigate to product page", "Click Add to Cart", "..."],
+  "kane_links": ["https://automation.lambdatest.com/test?testID=..."],
+  "kane_session_id": "uuid-of-kane-session",
+  "kane_code_export_dir": "/home/runner/.testmuai/kaneai/sessions/<id>/code-export"
+}
+```
+
+**Kane CLI invocation (per criterion):**
 ```bash
-# 1. Add/edit requirements in plain English
-vim requirements/search.txt
-
-# 2. Commit and push
-git add requirements/
-git commit -m "feat: add new product search requirement"
-git push
+kane-cli run "On https://ecommerce-playground.lambdatest.io/ — <acceptance criterion>" \
+  --username $LT_USERNAME \
+  --access-key $LT_ACCESS_KEY \
+  --ws-endpoint "wss://cdp.lambdatest.com/playwright?capabilities=..." \
+  --agent --headless \
+  --timeout 120 --max-steps 15 \
+  --code-export --code-language python --skip-code-validation
 ```
 
-GitHub Actions picks up the push and runs the full pipeline:
+**Kane exit codes:** `0=passed`, `1=failed`, `2=error`, `3=timeout`
 
-```
-Stage 1: Kane AI   → Verifies each acceptance criterion (functional) — real browser, session link per criterion
-Stage 2: Scenarios → Diffs scenarios.json, adds new, updates changed, deprecates removed
-Stage 3: Generate  → Writes Selenium regression tests for every scenario
-Stage 4: Regress   → HyperExecute fans out all tests in parallel across cloud VMs
-Stage 5: Report    → Traceability matrix combining Kane AI (functional) + HyperExecute (regression) results
-                     → GREEN / YELLOW / RED release verdict
-```
+**Cache strategy:** Results are cached in GitHub Actions by `hashFiles('requirements/*.txt')`. If requirements files are unchanged, the cached `analyzed_requirements.json` is reused and live Kane calls are skipped entirely.
 
-No human writes a single test. No one maps a requirement to code. The pipeline does it all.
+**Demo mode:** Set `DEMO_MODE=true` (or use the workflow dispatch toggle) to load pre-generated results from `ci/demo_kane_results.json` — completes in under 5 seconds for demos.
 
 ---
 
-## Why this architecture?
+### Stage 2 · Scenario Synchronization
 
-| Problem | Solution |
+**Function:** `sync_scenarios()` in `ci/agent.py`
+
+Maintains `scenarios/scenarios.json` as the authoritative, append-only catalog of test scenarios. Scenario IDs (`SC-001`, `SC-002`, ...) are **immutable** — once assigned, a scenario ID always maps to the same requirement.
+
+**Diff logic:**
+
+| Condition | Action | Status |
+|---|---|---|
+| Requirement is new (no existing scenario) | Assign next SC-NNN, TC-NNN | `new` |
+| Requirement description changed | Keep existing SC-NNN | `updated` |
+| Requirement unchanged | Keep as-is | `active` |
+| Requirement removed from requirements files | Keep in catalog forever | `deprecated` |
+
+**Why deprecation instead of deletion:** Deprecated scenarios stay in `scenarios.json` permanently. This enables trend analysis, rollback comparison, and audit trail — removing a scenario from requirements does not mean it never existed.
+
+**Outputs:**
+```
+scenarios/scenarios.json      — updated scenario catalog
+kane/objectives.json          — Kane objective per scenario (scenario_id → objective text)
+```
+
+---
+
+### Stage 3 · Playwright Code Generation
+
+**Scripts:** `ci/collect_kane_exports.py` (primary), `generate_tests()` in `ci/agent.py` (fallback)
+
+This is the test generation engine. It assembles `tests/playwright/test_powerapps.py` from real executable code — not templates.
+
+**Priority order per scenario:**
+
+```
+Priority 1: Kane-exported Python Playwright code
+            (collected from kane_code_export_dir in analyzed_requirements.json)
+            ↓ if not available
+Priority 2: Curated fallback body
+            (hand-written Playwright actions in ci/collect_kane_exports.py,
+             AC-001 through AC-015, covering all current acceptance criteria)
+            ↓ if not available
+Priority 3: pytest.skip() placeholder
+            (scenario exists but has no implementation — visible in report)
+```
+
+**How Kane export collection works:**
+
+Kane CLI writes Python Playwright code to `~/.testmuai/kaneai/sessions/<session_id>/code-export/`. After Stage 1, `ci/collect_kane_exports.py` reads each active scenario's `kane_code_export_dir` path from `analyzed_requirements.json`, parses the exported `.py` file using Python's `ast` module to extract the test function body, strips the function signature and `await` keywords (sync Playwright compatibility), and embeds the body into a pytest function with the correct markers.
+
+**Generated test structure:**
+```python
+@pytest.mark.scenario("SC-001")
+@pytest.mark.requirement("AC-001")
+def test_sc_001_searched_for_products_on_ecommerce_playground(page):
+    """SC-001: Searched for products on ecommerce-playground.lambdatest.io."""
+    # <Kane-exported or curated Playwright body here>
+    page.goto("https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28")
+    page.wait_for_load_state("domcontentloaded")
+    add_btn = page.locator("#button-cart")
+    add_btn.wait_for(timeout=15000)
+    add_btn.click()
+    # ... assertions
+```
+
+**Post-generation validation:** The generated file is compiled with `py_compile.compile()`. A syntax error aborts the pipeline before HyperExecute submission.
+
+**Outputs:**
+```
+tests/playwright/test_powerapps.py    — auto-generated, never edit manually
+kane/objectives.json                  — scenario_id → objective text
+```
+
+---
+
+### Stage 4 · Test Selection
+
+**Function:** `write_test_selection()` in `ci/agent.py`
+
+Determines which tests HyperExecute will execute. Controlled by the `FULL_RUN` environment variable.
+
+| Mode | Selected Scenarios | When Used |
+|---|---|---|
+| **Incremental** (`FULL_RUN=false`) | `status=new` and `status=updated` only | Default on push |
+| **Full** (`FULL_RUN=true`) | All non-deprecated scenarios | Manual dispatch, or first run |
+
+**Outputs:**
+```
+reports/pytest_selection.txt          — one test node ID per line
+reports/test_execution_manifest.json  — {selected_scenarios: [...], run_type: "full|incremental"}
+```
+
+**Example `pytest_selection.txt`:**
+```
+tests/playwright/test_powerapps.py::test_sc_001_searched_for_products_on_ecommerce_playground_lamb
+tests/playwright/test_powerapps.py::test_sc_002_attempted_to_open_the_cart_and_select_a_product_op
+tests/playwright/test_powerapps.py::test_sc_003_opened_the_laptops_product_catalog_on_ecommerce_pl
+```
+
+---
+
+### Stage 5 · HyperExecute Regression
+
+**Function:** `run_hyperexecute()` in `ci/agent.py`
+**Config:** `hyperexecute.yaml`
+
+HyperExecute is LambdaTest's distributed test orchestration platform. It takes the test selection file, fans tests out across parallel cloud VMs, and runs each pytest node against a real browser on the LambdaTest Grid.
+
+**HyperExecute configuration (`hyperexecute.yaml`):**
+
+| Parameter | Value | Purpose |
+|---|---|---|
+| `concurrency` | `5` | Up to 5 VMs running tests simultaneously |
+| `autosplit` | `true` | HE distributes tests across VMs automatically |
+| `retryOnFailure` | `true` | Failed tests retry once |
+| `maxRetries` | `1` | Maximum retry attempts per test |
+| `runtime` | Python 3.11, Linux | Execution environment |
+| `testDiscovery` | `cat reports/pytest_selection.txt` | Dynamic test list from Stage 4 |
+| `testRunnerCommand` | `PYTHONPATH=. pytest "$test" -v --tb=short -s` | Per-test execution |
+| `mergeArtifacts` | `true` | Consolidate artifacts from all VMs |
+
+**Multi-browser execution:**
+
+The `BROWSERS` environment variable (`chrome,firefox,safari,android`) drives pytest parametrization in `conftest.py`. Each test function runs once per browser — 7 scenarios × 4 browsers = 28 total test executions.
+
+**Browser → LambdaTest capability mapping (`conftest.py`):**
+
+| Browser Key | Playwright Launcher | LT browserName | Platform |
+|---|---|---|---|
+| `chrome` | `chromium` | `Chrome` | Windows 10 |
+| `firefox` | `firefox` | `Firefox` | Windows 10 |
+| `safari` | `webkit` | `Safari` | macOS Ventura |
+| `android` | `chromium` | `Chrome` | Android (Galaxy S22, OS 12) |
+
+**Android execution:** The Android browser key routes to a real LambdaTest Android device (Galaxy S22, Android 12) via the Playwright wire protocol. The HyperExecute VM remains Linux — only the browser session lands on the physical device.
+
+**LambdaTest connection:** Tests connect via `wss://cdp.lambdatest.com/playwright?capabilities=<JSON>` using Playwright's `browser.connect()` wire protocol (not `connect_over_cdp()` — the wire protocol is required for correct session metadata).
+
+**Per-test conftest fixture behavior:**
+1. Builds LambdaTest capabilities JSON (platform, browser, build name, session name)
+2. Connects to LambdaTest CDP endpoint via Playwright wire protocol
+3. Creates browser context and page
+4. Yields `page` to the test function
+5. After test: reads pass/fail from pytest report hook
+6. Calls `window['lambda-status'] = 'passed|failed'` on the LambdaTest session
+7. Writes `reports/kane_result_<SC-ID>_<browser>.json` with full timing and status
+
+**Status normalization:** HyperExecute job status is normalized from raw API values to enterprise-grade labels:
+
+| Raw Status | Normalized | Meaning |
+|---|---|---|
+| `completed` / `passed` | `PASSED` | All tasks finished successfully |
+| `failed` | `FAILED` | One or more tasks failed |
+| `error` | `INFRA_FAILURE` | HyperExecute infrastructure error |
+| `aborted` / `cancelled` | `CANCELLED` | Job manually stopped |
+| `running` / `queued` | `RUNNING` | Job in progress |
+| `unknown` + tasks present | Derived from tasks | MCP unavailable — derived from per-task results |
+| `unknown` + no tasks | `NOT_EXECUTED` | Stage was skipped |
+
+**Outputs:**
+```
+reports/hyperexecute-cli.log           — full CLI output
+reports/junit.xml                      — JUnit XML (merged from all VMs)
+reports/report.html                    — pytest HTML report
+reports/kane_result_SC-*_<browser>.json — per-test per-browser result files
+reports/api_details.json               — HE job summary + per-task session links
+```
+
+---
+
+### Stage 6 · Result Aggregation
+
+**Functions:** `fetch_and_save_mcp_results()` in `ci/agent.py`, then `ci/normalize_artifacts.py`
+
+**Result fetching (three-tier cascade):**
+
+```
+Tier 1: MCP (Model Context Protocol)
+        sse_client → getHyperExecuteJobInfo → polls until terminal status
+        (max 30 attempts × 30s = 15 minutes)
+        ↓ if MCP fails
+Tier 2: HyperExecute REST API
+        GET https://api.hyperexecute.cloud/v2.0/job/{job_id}
+        GET https://api.hyperexecute.cloud/v2.0/job/{job_id}/sessions
+        ↓ if HE API fails (403 or network error)
+Tier 3: LambdaTest Automation API
+        GET /automation/api/v1/builds?s=<build_name>
+        GET /automation/api/v1/sessions?build_id=<id>
+```
+
+**Status derivation when API is unreachable:** If job-level status cannot be fetched but task results are available, the pipeline derives the job status from individual task outcomes: all passed → `completed`; any failed → `failed`. This eliminates the `"unknown"` state entirely.
+
+**Artifact normalization (`ci/normalize_artifacts.py`):**
+
+Merges three data sources into a unified result record per scenario+browser:
+
+| Priority | Source | Data |
+|---|---|---|
+| 1 (highest) | `reports/kane_result_SC-*_<browser>.json` | Real timing, real status, error messages |
+| 2 | `reports/junit*.xml` | pytest pass/fail, duration |
+| 3 | `reports/api_details.json` he_tasks | HE session links |
+
+When data is missing for a scenario+browser combination, status is set to `data_unavailable` — never fabricated.
+
+**Outputs:**
+```
+reports/api_details.json          — HE job summary (status, normalized_status, parser_status,
+                                    task_pass_count, task_fail_count) + per-task session links
+reports/normalized_results.json   — unified result per scenario+browser
+```
+
+---
+
+### Stage 7 · Requirement Traceability
+
+**Script:** `ci/build_traceability.py`
+
+Constructs the full requirement → scenario → test → result traceability chain. Combines Kane AI functional results (from Stage 1) with Playwright regression results (from Stage 6) at the requirement level.
+
+**Combined verdict logic:**
+
+```
+requirement.overall = "passed"  iff  kane_status == "passed"
+                                 AND  playwright_status == "passed"
+                                      (across all browsers)
+
+requirement.overall = "failed"  if   kane_status == "failed"
+                                  OR  any browser playwright_status == "failed"
+
+requirement.overall = "data_unavailable"  if  no Playwright execution data exists
+```
+
+**Feature classification:** Each requirement is automatically classified into a feature domain based on keyword matching:
+
+| Feature | Keywords | Criticality |
+|---|---|---|
+| `AUTH` | register, login, logout, account, password | HIGH |
+| `CHECKOUT` | checkout, shipping, flat rate | HIGH |
+| `CART` | cart, add to cart, remove, update quantity | HIGH |
+| `SEARCH` | search, find product, search result | MEDIUM |
+| `CATALOG` | catalog, laptops, browse, category, grid | MEDIUM |
+| `PRODUCT_DETAIL` | product detail, price, thumbnail | MEDIUM |
+| `FILTER` | filter, brand, sidebar | LOW |
+| `SORT` | sort, price low to high | LOW |
+| `WISHLIST` | wish list, wishlist | LOW |
+
+**Coverage category annotation per requirement:**
+
+| Category | Detection |
 |---|---|
-| LLMs burn tokens on repetitive UI clicks | **Kane AI** is a specialized testing agent — no wasted reasoning |
-| One CI runner is too slow for 50+ tests | **HyperExecute** fans out to 4–1000 parallel VMs |
-| Tests drift from requirements | **Scenarios and tests are regenerated** every time requirements change |
-| QA verdict is manual and subjective | **Release recommendation** is generated from actual test data |
-| Brittle test maintenance burden | **Tests are regenerated** from scenarios on every requirements change |
+| `happy_path` | Has a scenario assigned |
+| `negative` | Keywords: invalid, error, fail, reject, remove, delete |
+| `edge_case` | Keywords: empty cart, boundary, duplicate, persistence |
+| `mobile` | Any mobile browser (android, ios) in results |
+| `android` | Android browser in results |
+| `he_executed` | Has a HyperExecute session link |
+| `regression` | Playwright status is not data_unavailable |
+
+**Outputs:**
+```
+reports/traceability_matrix.md     — human-readable markdown table
+reports/traceability_matrix.json   — machine-readable with summary + rows + result_analysis
+```
+
+**Traceability matrix structure (JSON):**
+```json
+{
+  "summary": {
+    "run_type": "full",
+    "requirements_covered": 7,
+    "requirements_total": 7,
+    "executed": 7,
+    "passed": 4,
+    "pass_rate": 57.1,
+    "browsers_tested": ["chrome", "firefox", "safari", "android"],
+    "failing_scenarios": ["SC-001", "SC-002", "SC-004"]
+  },
+  "rows": [...],
+  "result_analysis": {
+    "overall_health": "at_risk",
+    "risk_level": "medium",
+    "kane_pass_rate": 57.1,
+    "playwright_pass_rate": 57.1,
+    "key_findings": [...],
+    "recommendation_hint": "..."
+  }
+}
+```
 
 ---
 
-## Pipeline Automation
+### Stage 8 · Release Recommendation
 
-The `.github/workflows/agentic-stlc.yml` workflow runs two jobs:
+**Script:** `ci/release_recommendation.py`
 
-**Job 1 — `analyze` (Stage 1):** `ci/analyze_requirements.py` runs `kane-cli run` against the live site for each acceptance criterion. Kane AI drives a real browser session, confirms the criterion is observable, and records pass/fail + a session link. These are the **functional test results**.
+Computes a deterministic GREEN / YELLOW / RED verdict from the traceability summary.
 
-**Job 2 — `orchestrate` (Stages 2-5):** `ci/agent.py` runs the remaining stages end-to-end:
+| Verdict | Condition |
+|---|---|
+| 🟢 **GREEN** | Pass rate ≥ 90%, no failing scenarios, no untested requirements, risk ≠ HIGH |
+| 🟡 **YELLOW** | Pass rate ≥ 75%, no untested requirements, risk ≠ HIGH |
+| 🔴 **RED** | Pass rate < 75%, or untested requirements exist, or risk = HIGH |
 
-1. **Stage 2 - Scenario Sync**: Diffs `scenarios/scenarios.json` against analyzed requirements — new scenarios added, changed ones updated, removed ones deprecated.
-2. **Stage 3 - Test Generation**: Generates `tests/selenium/test_products.py` — one pytest function per scenario with site-specific Selenium actions and WebDriverWait assertions.
-3. **Stage 4 - Regression at Scale (HyperExecute)**: Submits selected tests to HyperExecute. Tests fan out across parallel cloud VMs; each VM runs one `pytest "$test"` node connected to LambdaTest Selenium Grid via `conftest.py`.
-4. **Stage 5 - Traceability + Verdict**: `ci/build_traceability.py` maps Kane AI functional results and HyperExecute regression results to every requirement. `ci/write_github_summary.py` produces the GitHub Actions summary with a combined **Functional + Regression Result** column per requirement and a GREEN / YELLOW / RED release verdict.
+**Output:** `reports/release_recommendation.md`
 
 ---
 
-## Repository structure
+### Stage 9 · GitHub Actions Summary
+
+**Script:** `ci/write_github_summary.py`
+
+Writes the full pipeline report to the GitHub Actions Step Summary (`$GITHUB_STEP_SUMMARY`). The summary is a single Markdown page containing every stage result, every requirement result, browser breakdown, traceability matrix, quality gates, coverage analysis, impact analysis, RCA findings, and the release verdict — with clickable links to every LambdaTest session.
+
+---
+
+### Advisory Scripts (Non-Blocking)
+
+These scripts run after the critical pipeline and log warnings but never block the pipeline or change the exit code.
+
+| Script | Purpose | Output |
+|---|---|---|
+| `ci/coverage_analysis.py` | Per-requirement coverage scoring, missing scenario detection, flakiness analysis, feature heatmap | `reports/coverage_report.json`, `reports/missing_scenarios.json`, `reports/flaky_requirements.json` |
+| `ci/quality_gates.py` | Evaluate configurable pass rate, coverage, and flakiness thresholds | `reports/quality_gates.json` |
+| `ci/impact_analysis.py` | Determine which requirements are impacted by recent git file changes | `reports/impacted_requirements.json` |
+| `ci/fetch_rca.py` | Call LambdaTest Insights RCA API for AI-generated root cause on each failed test | `reports/rca_report.json`, `reports/rca_report.md` |
+| `ci/validate_report.py` | Integrity checks on traceability matrix | `reports/validation_report.json` |
+| `ci/pipeline_metrics.py` | Stage timing, cache hits, test counts | `reports/pipeline_metrics.json` |
+
+---
+
+## Requirement Traceability
+
+Every acceptance criterion traces through the full pipeline:
 
 ```
-.
-├── PIPELINE.md                              # Natural language stage instructions
-├── CLAUDE.md                                # Claude Code project config
-├── LICENSE                                  # MIT License
-├── hyperexecute.yaml                        # HyperExecute cloud execution config
-├── requirements.txt                         # Python dependencies
+AC-001 (plain English)
+  └── SC-001 (scenario — immutable ID)
+        └── TC-001 (test case)
+              ├── Kane AI: passed ✅  →  session link, steps observed, one-liner summary
+              └── Playwright regression:
+                    ├── chrome:  passed ✅  →  LambdaTest session link
+                    ├── firefox: passed ✅  →  LambdaTest session link
+                    ├── safari:  passed ✅  →  LambdaTest session link
+                    └── android: failed ❌  →  LambdaTest session link + RCA
+              └── Overall: FAILED (any browser fail = requirement fails)
+```
+
+**Example traceability matrix row:**
+
+| Req | Acceptance Criterion | Scenario | Test Case | Kane AI | Kane Session | What Kane Saw | Chrome | Firefox | Safari | Android | Playwright | Session | Overall |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `AC-001` | User can add a product to the cart from the product detail page | `SC-001` | `TC-001` | passed | [session](...) | Added HTC Touch HD to cart, cart count updated | ✅ | ✅ | ✅ | ❌ | failed | [session](...) | ❌ failed |
+
+---
+
+## Playwright Generation Engine
+
+### Kane Export Pipeline
+
+Kane AI does not just verify requirements — it writes the test code. Every Kane session with `--code-export` produces a Python Playwright `.py` file at a deterministic path:
+
+```
+~/.testmuai/kaneai/sessions/<session_uuid>/code-export/<test>.py
+```
+
+`ci/collect_kane_exports.py` collects these files after Stage 1, extracts the test function body using Python's `ast` module (for reliability), strips `async/await` for sync Playwright compatibility, and embeds the bodies into pytest functions.
+
+**Why Kane code export matters:** The regression tests are not templates — they are the actual browser actions Kane performed when verifying the requirement. This means regression tests and functional verification share the same executable logic, reducing the gap between "it works in Kane" and "it works in pytest."
+
+### Fallback Bodies
+
+When Kane has no exported code (session skipped, credentials absent, demo mode), `ci/collect_kane_exports.py` contains curated Playwright implementations for AC-001 through AC-015. These are real, executable Playwright actions — not placeholder stubs.
+
+**Supported acceptance criteria (fallback coverage):**
+
+| AC ID | Feature | Test Action |
+|---|---|---|
+| AC-001 | CART | Add product to cart, verify cart count |
+| AC-002 | CART | Open cart dropdown, verify items visible |
+| AC-003 | CATALOG | Navigate to Laptops category, verify product grid |
+| AC-004 | FILTER | Apply Apple brand filter, verify content updates |
+| AC-005 | PRODUCT_DETAIL | Open product detail page, verify name and price |
+| AC-006 | GUEST | Browse homepage without login, verify content |
+| AC-007 | SEARCH | Search for "iPhone", verify results returned |
+| AC-008 | AUTH | Register new account with unique email |
+| AC-009 | AUTH | Login with credentials, verify dashboard |
+| AC-010 | AUTH | Login then logout, verify redirect |
+| AC-011 | CART | Add product, navigate to cart, remove item, verify empty |
+| AC-012 | CART | Add product, update quantity to 3, verify updated |
+| AC-013 | SORT | Sort Laptops by price low→high, verify page updates |
+| AC-014 | WISHLIST | Login, add to wishlist, verify wishlist contains item |
+| AC-015 | CHECKOUT | Add to cart, guest checkout with billing details |
+
+### Locator Strategy
+
+Playwright tests use resilient locators in priority order:
+1. **Semantic locators** (`page.get_by_role()`, `page.get_by_label()`) where available
+2. **ID-based** (`#button-cart`, `#input-firstname`) for stable application IDs
+3. **Attribute selectors** (`input[name='search']`, `input[value='Login']`)
+4. **Class + text filter** (`.list-group-item` filtered by `has_text="Apple"`)
+5. **Composite with fallback** (try primary locator, fall back to secondary if count=0)
+
+### Android Support
+
+Android tests run on a real LambdaTest device (Galaxy S22, Android 12). The `conftest.py` fixture injects device-specific capabilities:
+
+```python
+_ANDROID_EXTRA = {
+    "deviceName": "Galaxy S22",
+    "osVersion":  "12",
+    "isRealMobile": True,
+}
+```
+
+The HyperExecute VM stays Linux. Only the browser session runs on the physical device via LambdaTest's device farm.
+
+---
+
+## HyperExecute Integration
+
+### Execution Flow
+
+```
+ci/agent.py  →  hyperexecute CLI  →  HyperExecute Cloud
+                                          │
+                              ┌───────────┴───────────┐
+                          VM 1 (pytest SC-001)    VM 2 (pytest SC-002)
+                          VM 3 (pytest SC-003)    VM 4 (pytest SC-004)
+                          VM 5 (pytest SC-005)
+                              │
+                        conftest.py fixture
+                              │
+                        LambdaTest CDP Grid
+                              │
+                   ┌──────────┼──────────┐
+               Chrome      Firefox    Safari
+               (Win 10)   (Win 10)  (macOS Ventura)
+```
+
+### Test Discovery
+
+HyperExecute discovers tests dynamically from `reports/pytest_selection.txt` (generated in Stage 4):
+
+```yaml
+testDiscovery:
+  type: raw
+  mode: dynamic
+  command: cat reports/pytest_selection.txt
+```
+
+This means HyperExecute reads the file at job start and distributes the listed test nodes across VMs. Adding or removing tests from requirements automatically changes what HE runs — no YAML changes needed.
+
+### Artifact Collection
+
+Each VM writes per-test artifacts. `mergeArtifacts: true` consolidates them:
+
+```
+VM 1 reports/ ─┐
+VM 2 reports/ ─┤──→ merged reports/ → uploaded as "TestReports" artifact
+VM 3 reports/ ─┤
+VM 4 reports/ ─┤
+VM 5 reports/ ─┘
+```
+
+### Job ID Extraction
+
+The pipeline extracts the HyperExecute job ID from CLI output using multiple regex patterns to handle format variations across CLI versions:
+
+```python
+_JOB_ID_PATTERNS = [
+    re.compile(r"jobId=([\w-]+)"),
+    re.compile(r"job[_\s-]?id[:\s=]+([0-9a-f]{8}-...)", re.IGNORECASE),
+    re.compile(r"hyperexecute/task\?jobId=([\w-]+)"),
+    re.compile(r"Job\s+(?:ID|Id)[:\s]+([0-9a-f]{8}-...)", re.IGNORECASE),
+]
+```
+
+If the job ID cannot be extracted, the pipeline derives the job status from task-level results rather than failing the report.
+
+---
+
+## KaneAI Integration
+
+### CLI Orchestration
+
+Kane CLI is invoked directly as a subprocess per acceptance criterion. The pipeline builds a LambdaTest CDP WebSocket endpoint with full capability JSON and passes it via `--ws-endpoint`, giving Kane a real browser session on LambdaTest infrastructure.
+
+```
+Session name: "AC-001 | User can add a product to the cart from..."
+Build name:   "Agentic STLC #42 | 2026-05-12"
+```
+
+This naming convention ensures Kane sessions appear in the same LambdaTest build as the Playwright regression sessions, enabling cross-verification in the LambdaTest dashboard.
+
+### Result Parsing
+
+Kane CLI emits two output formats simultaneously:
+
+| Format | Content |
+|---|---|
+| **NDJSON** | `step_end` events (step summaries), `run_end` event (overall result, session_id, one_liner) |
+| **Plain text** | Links box with `CodeExport file:///...` path |
+
+The parser handles both formats, extracts the session UUID from any output line matching a UUID pattern, resolves the code-export directory via `~/.testmuai/kaneai/sessions/<uuid>/code-export/`, and returns a structured result regardless of which format Kane used for a given version.
+
+### Code Export Collection
+
+```
+Kane CLI runs with --code-export
+        │
+        ▼
+~/.testmuai/kaneai/sessions/<uuid>/code-export/<test>.py
+        │
+        ▼
+collect_kane_exports.py
+  → ast.parse() extracts function body
+  → strips async/await for sync Playwright
+  → wraps in @pytest.mark.scenario + @pytest.mark.requirement
+        │
+        ▼
+tests/playwright/test_powerapps.py
+```
+
+---
+
+## Requirement Coverage Analysis
+
+**Script:** `ci/coverage_analysis.py`
+
+Produces per-requirement and per-feature coverage scoring beyond simple pass/fail.
+
+### Coverage Status per Requirement
+
+| Status | Condition |
+|---|---|
+| `FULL` | Has scenario, executed across all browsers, all passed |
+| `PARTIAL` | Has scenario, executed, but some browsers failed or coverage categories missing |
+| `NONE` | No scenario assigned, or no execution data |
+
+### Coverage Categories
+
+Each requirement is assessed across seven coverage dimensions:
+
+| Category | What It Checks |
+|---|---|
+| `happy_path` | Is there a passing scenario for the core user flow? |
+| `negative` | Is there a test for invalid input, rejection, or error state? |
+| `edge_case` | Is there a test for boundary, duplicate, or session edge cases? |
+| `mobile` | Did any mobile browser (Android, iOS) execute this requirement? |
+| `android` | Did Android specifically execute this requirement? |
+| `he_executed` | Did HyperExecute produce a session link (proof of cloud execution)? |
+| `regression` | Does a Playwright result exist (not data_unavailable)? |
+
+### Missing Scenario Detection
+
+For each requirement, the coverage engine compares existing coverage categories against the feature's required scenario types. Missing coverage gaps are reported in `reports/missing_scenarios.json`:
+
+```json
+{
+  "missing": [
+    {
+      "requirement_id": "AC-001",
+      "feature": "CART",
+      "criticality": "HIGH",
+      "missing": [
+        {"type": "negative", "description": "Test adding an out-of-stock product"},
+        {"type": "edge_case", "description": "Test adding duplicate items to cart"}
+      ]
+    }
+  ]
+}
+```
+
+### Flakiness Detection
+
+A requirement is marked flaky if:
+- `retries > 0` in any browser result
+- Mixed pass/fail status across retries of the same test
+
+Flaky requirements are reported in `reports/flaky_requirements.json` and surfaced in the GitHub summary.
+
+### Feature Coverage Heatmap
+
+Requirements are grouped by feature domain and presented as a heatmap:
+
+| Feature | Criticality | Total | Covered | Partial | Uncovered |
+|---|---|---|---|---|---|
+| AUTH | 🔴 HIGH | 3 | 2 | 1 | 0 |
+| CHECKOUT | 🔴 HIGH | 1 | 1 | 0 | 0 |
+| CART | 🔴 HIGH | 4 | 3 | 1 | 0 |
+| SEARCH | 🟡 MEDIUM | 1 | 1 | 0 | 0 |
+| CATALOG | 🟡 MEDIUM | 1 | 1 | 0 | 0 |
+
+---
+
+## Quality Gates
+
+**Script:** `ci/quality_gates.py`
+**Configuration:** Environment variables (all optional, sensible defaults)
+
+Quality gates evaluate the pipeline output against configurable thresholds. CRITICAL gates exit 1 and block downstream steps. WARNING gates log but do not block.
+
+| Gate | Default Threshold | Severity | Environment Variable |
+|---|---|---|---|
+| Minimum requirement coverage | 50% | WARNING | `GATE_MIN_COVERAGE_PCT` |
+| Minimum Playwright pass rate | 75% | CRITICAL | `GATE_MIN_PASS_RATE` |
+| Maximum flaky requirements | 5 | WARNING | `GATE_MAX_FLAKY` |
+| HIGH-criticality requirements must be covered | true | CRITICAL | `GATE_REQUIRE_CRITICAL` |
+| Maximum uncovered HIGH-risk requirements | 999 (disabled) | WARNING | `GATE_MAX_HIGH_RISK` |
+| Minimum HyperExecute execution coverage | 0% (disabled) | WARNING | `GATE_MIN_HE_PCT` |
+
+**Gate output example (`reports/quality_gates.json`):**
+```json
+{
+  "gates_passed": false,
+  "critical_failures": 1,
+  "warnings": 2,
+  "gates": [
+    {
+      "gate": "Playwright pass rate",
+      "severity": "CRITICAL",
+      "passed": false,
+      "actual": 57.1,
+      "threshold": 75.0,
+      "unit": "%"
+    }
+  ]
+}
+```
+
+---
+
+## Reporting & Analytics
+
+### GitHub Actions Step Summary
+
+The primary report surface. Written by `ci/write_github_summary.py` to `$GITHUB_STEP_SUMMARY`. Contains:
+
+- **Pipeline Stage Status table** — normalized status per stage with evidence
+- **Stage 1: KaneAI Verification** — per-criterion pass/fail, Kane session links
+- **Stage 2: Scenario Catalog** — new/updated/active/deprecated counts
+- **Stage 3: Generated Tests** — function names per scenario
+- **Stage 4: Test Selection** — run type, scenario count
+- **Stage 5: HyperExecute Regression** — normalized status, task counts, dashboard link, parser diagnostics
+- **Stage 6: Traceability Matrix** — per-requirement per-browser results, session links
+- **Coverage Analysis** — heatmap, missing scenarios, flaky requirements
+- **Quality Gates** — gate-by-gate pass/fail with thresholds
+- **Impact Analysis** — requirements affected by recent file changes
+- **Root Cause Analysis** — LambdaTest AI RCA for failed tests
+- **Release Recommendation** — GREEN / YELLOW / RED with reasoning
+
+### Stage 5 Evidence Table
+
+Stage 5 now surfaces full diagnostic information for every pipeline run:
+
+| Metric | Raw Value | Normalized | Evidence |
+|---|---|---|---|
+| HyperExecute Job | `0d040374-...` | — | [Open in LambdaTest ↗](...) |
+| Job Status | `completed` | **PASSED** | source: api_ok |
+| Parser Status | `api_ok` | — | how status was resolved |
+| Total tasks | 14 | — | submitted to HyperExecute |
+| ✅ Passed | 14 | — | task-level results |
+| ❌ Failed | 0 | — | task-level results |
+
+The `parser_status` field documents exactly how the status was resolved:
+
+| Parser Status | Meaning |
+|---|---|
+| `api_ok` | Status fetched directly from HyperExecute API |
+| `derived_from_tasks` | MCP unreachable — status derived from individual task results |
+| `mcp_unavailable` | MCP and REST API both failed — check LT credentials |
+| `not_executed` | HyperExecute stage was skipped (no job submitted) |
+
+### LambdaTest Artifacts
+
+Every test produces a clickable LambdaTest Automate session link with:
+- Full video recording
+- Network traffic capture
+- Console logs
+- Visual screenshots at each step
+- LambdaTest AI RCA for failures (`ci/fetch_rca.py`)
+
+---
+
+## Project Structure
+
+```
+agentic-stlc/
 │
 ├── requirements/
-│   └── search.txt                           # INPUT: plain-English requirements
+│   ├── search.txt                        ← INPUT: plain-English requirements (edit this)
+│   ├── cart.txt                          ← Additional requirements file
+│   └── analyzed_requirements.json        ← Stage 1 output: Kane results per AC (auto-generated)
 │
 ├── scenarios/
-│   └── scenarios.json                       # Managed test scenarios (auto-updated)
+│   └── scenarios.json                    ← Immutable scenario catalog (SC-001…, never delete)
 │
 ├── kane/
-│   └── objectives.json                      # Kane CLI objectives per scenario
+│   └── objectives.json                   ← Kane objective per scenario (scenario_id → text)
 │
-├── ci/                                      # CI stage scripts
-│   ├── analyze_requirements.py
-│   ├── manage_scenarios.py
-│   ├── generate_tests_from_scenarios.py
-│   ├── select_tests.py
-│   ├── build_traceability.py
-│   ├── release_recommendation.py
-│   ├── analyze_hyperexecute_failures.py
-│   ├── run_pytest_node.py
-│   └── write_github_summary.py
+├── tests/playwright/
+│   ├── conftest.py                       ← Multi-browser fixture, LambdaTest CDP, result logging
+│   └── test_powerapps.py                 ← AUTO-GENERATED — do not edit manually
 │
-├── tests/selenium/
-│   ├── conftest.py                          # LambdaTest hub driver fixture + marker registration
-│   └── test_products.py                     # Selenium WebDriver tests (auto-generated)
+├── ci/
+│   ├── agent.py                          ← Main orchestrator: Stages 2–9
+│   ├── analyze_requirements.py           ← Stage 1: Kane CLI execution per criterion
+│   ├── collect_kane_exports.py           ← Stage 3a: Assemble Kane-exported Playwright code
+│   ├── generate_tests_from_scenarios.py  ← Stage 3b: Template-based fallback generator
+│   ├── select_tests.py                   ← Stage 4: Build pytest_selection.txt
+│   ├── normalize_artifacts.py            ← Stage 6a: Merge conftest + JUnit + HE API results
+│   ├── build_traceability.py             ← Stage 7: Requirement → scenario → test → result matrix
+│   ├── release_recommendation.py         ← Stage 8: GREEN/YELLOW/RED verdict
+│   ├── write_github_summary.py           ← Stage 9: GitHub Actions Step Summary
+│   ├── coverage_analysis.py              ← Advisory: coverage scoring, missing scenarios, flakiness
+│   ├── quality_gates.py                  ← Advisory: configurable pass/coverage thresholds
+│   ├── impact_analysis.py                ← Advisory: git-diff → impacted requirements
+│   ├── fetch_rca.py                      ← Advisory: LambdaTest AI RCA for failed tests
+│   ├── validate_report.py                ← Advisory: traceability integrity checks
+│   ├── pipeline_metrics.py               ← Advisory: stage timing and cache metrics
+│   ├── analyze_hyperexecute_failures.py  ← HE failure log parser
+│   ├── run_pytest_node.py                ← Single test executor (called by HE per VM)
+│   ├── manage_scenarios.py               ← Standalone scenario sync script
+│   ├── fetch_api_details.py              ← Standalone LambdaTest API fetcher
+│   └── stage_utils.py                    ← Shared stage header/result printer
 │
-├── reports/                                 # Runtime output — gitignored
-│   ├── traceability_matrix.md
-│   └── release_recommendation.md
+├── reports/                              ← Runtime artifacts (gitignored, generated per run)
+│   ├── analyzed_requirements.json        (duplicated from requirements/ by Stage 1)
+│   ├── api_details.json                  ← HE job summary + per-task session links
+│   ├── normalized_results.json           ← Merged results per scenario+browser
+│   ├── traceability_matrix.md            ← Human-readable traceability table
+│   ├── traceability_matrix.json          ← Machine-readable traceability with summary
+│   ├── release_recommendation.md         ← GREEN/YELLOW/RED verdict with reasoning
+│   ├── coverage_report.json              ← Per-requirement coverage scores
+│   ├── missing_scenarios.json            ← Coverage gaps per requirement
+│   ├── flaky_requirements.json           ← Flaky requirement list
+│   ├── quality_gates.json                ← Gate evaluation results
+│   ├── impacted_requirements.json        ← Git-diff impact analysis
+│   ├── rca_report.json                   ← LambdaTest AI RCA findings
+│   ├── validation_report.json            ← Traceability integrity check results
+│   ├── pipeline_metrics.json             ← Stage timing and cache data
+│   ├── junit.xml                         ← pytest JUnit XML (merged from all VMs)
+│   ├── report.html                       ← pytest HTML report
+│   ├── pytest_selection.txt              ← Test node IDs for HyperExecute
+│   ├── test_execution_manifest.json      ← Selected scenarios + run type
+│   ├── kane_results.json                 ← Summarized Kane results
+│   └── kane_result_SC-*_<browser>.json   ← Per-test per-browser result files
 │
+├── hyperexecute.yaml                     ← HyperExecute config: concurrency, runtime, discovery
+├── pytest.ini                            ← pytest marker definitions
+├── requirements.txt                      ← Python dependencies
+├── CLAUDE.md                             ← Project context for Claude Code
+├── PIPELINE.md                           ← Stage definitions in natural language
 └── .github/workflows/
-    └── agentic-stlc.yml                     # Agentic STLC Pipeline
+    └── agentic-stlc.yml                  ← 2-job GitHub Actions workflow
 ```
+
+---
+
+## GitHub Actions Workflow
+
+**File:** `.github/workflows/agentic-stlc.yml`
+
+### Triggers
+
+| Trigger | Condition |
+|---|---|
+| Push | Changes to `requirements/**`, `scenarios/**`, `tests/**`, `ci/**`, `hyperexecute.yaml`, or the workflow file |
+| Pull Request | Same path filters |
+| Manual dispatch | `full_run` (boolean), `demo_mode` (boolean) |
+
+### Jobs
+
+**Job 1 — `analyze` (Stage 1)**
+
+Runs `ci/analyze_requirements.py`. Uploads `requirements/analyzed_requirements.json` as the `analyzed-requirements` artifact.
+
+Optimizations:
+- **npm cache:** Kane CLI install cached by Node version
+- **pip cache:** Python dependencies cached by `requirements.txt` hash
+- **Kane results cache:** `analyzed_requirements.json` cached by `hashFiles('requirements/*.txt')`. Cache hit = skip live Kane calls entirely.
+
+**Job 2 — `orchestrate` (Stages 2–9)**
+
+Depends on Job 1. Downloads the `analyzed-requirements` artifact, validates it, downloads the HyperExecute CLI binary, then runs `ci/agent.py`.
+
+```
+Validate Stage 1 artifact
+→ Download HyperExecute CLI (curl + ELF validation)
+→ python ci/agent.py   (Stages 2–9)
+→ python ci/pipeline_metrics.py  (always, even on failure)
+→ Upload pipeline-reports artifact
+```
+
+### Artifact Retention
+
+| Artifact | Contents | Retention |
+|---|---|---|
+| `analyzed-requirements` | `requirements/analyzed_requirements.json` | 30 days |
+| `pipeline-reports` | `reports/`, `scenarios/scenarios.json`, `tests/playwright/test_powerapps.py` | 30 days |
 
 ---
 
 ## Prerequisites
 
-| Tool | Required for | Install |
-|---|---|---|
-| Node.js 18+ | Kane CLI (Stage 1) | [nodejs.org](https://nodejs.org) |
-| Python 3.11+ | CI scripts + pytest | [python.org](https://python.org) |
-| Kane CLI | Stage 1 requirement analysis | `npm install -g @testmuai/kane-cli` |
-| Playwright | Regression tests (Stage 4) | `pip install playwright && playwright install chromium` |
-| HyperExecute CLI | Cloud parallel execution | Downloaded automatically by CI |
-| LambdaTest account | CDP grid + HyperExecute | [lambdatest.com](https://www.lambdatest.com) |
-| Microsoft 365 account | Power Apps access | Your org's M365 tenant |
-| Deployed Power App | Test target | Deploy from [teams-powerapps-app-templates](https://github.com/microsoft/teams-powerapps-app-templates) |
+| Tool | Version | Role | Install |
+|---|---|---|---|
+| Python | 3.11+ | CI scripts, pytest, Playwright | [python.org](https://python.org) |
+| Node.js | 22 | Kane CLI | [nodejs.org](https://nodejs.org) |
+| Kane CLI | latest | Stage 1 functional verification | `npm install -g @testmuai/kane-cli` |
+| Playwright | latest | Regression test execution | `pip install playwright && playwright install chromium firefox webkit` |
+| HyperExecute CLI | latest | Cloud parallel execution | Downloaded automatically by CI |
+| LambdaTest account | — | CDP grid + HyperExecute + device farm | [lambdatest.com](https://lambdatest.com) |
 
 ---
 
 ## Setup
 
-### 1. Clone and install
+### 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/lambdapro/agentic-stlc.git
-cd agentic-stlc
+git clone https://github.com/lambdapro/agentic-stlc-kane-hyperexecute.git
+cd agentic-stlc-kane-hyperexecute
 
-npm install -g @testmuai/kane-cli
 pip install -r requirements.txt
+npm install -g @testmuai/kane-cli
+playwright install chromium firefox webkit
 ```
 
-### 2. Set credentials
+### 2. Configure environment credentials
 
 ```bash
 export LT_USERNAME=your_lambdatest_username
 export LT_ACCESS_KEY=your_lambdatest_access_key
-export M365_USERNAME=your_m365_email
-export M365_PASSWORD=your_m365_password
-export POWERAPPS_URL=https://apps.powerapps.com/play/your-environment-id/your-app-id
 ```
 
-| Credential | Where to get it |
-|---|---|
-| `LT_USERNAME` | [LambdaTest Dashboard > Settings > Keys](https://accounts.lambdatest.com/security) |
-| `LT_ACCESS_KEY` | Same page |
-| `M365_USERNAME` | Your Microsoft 365 account email |
-| `M365_PASSWORD` | Your Microsoft 365 account password |
-| `POWERAPPS_URL` | Power Apps player URL for your deployed IssueReporting app |
+| Variable | Where to Get | Required |
+|---|---|---|
+| `LT_USERNAME` | [LambdaTest Dashboard → Settings → Keys](https://accounts.lambdatest.com/security) | Yes |
+| `LT_ACCESS_KEY` | Same page | Yes |
+| `TARGET_URL` | Override the default ecommerce playground URL | No |
+| `BROWSERS` | Comma-separated: `chrome,firefox,safari,android` | No (defaults to `chrome`) |
+| `FULL_RUN` | `true` = run all scenarios, `false` = incremental | No (defaults to `true`) |
+| `DEMO_MODE` | `true` = use pre-generated Kane results | No |
 
-### 3. Add GitHub secrets
+### 3. Configure GitHub Secrets
 
-In your fork: **Settings > Secrets and variables > Actions > New repository secret**
+**Settings → Secrets and variables → Actions → New repository secret**
 
-| Secret name | Value |
+| Secret | Value |
 |---|---|
 | `LT_USERNAME` | Your LambdaTest username |
 | `LT_ACCESS_KEY` | Your LambdaTest access key |
-| `M365_USERNAME` | Microsoft 365 account email |
-| `M365_PASSWORD` | Microsoft 365 account password |
-| `POWERAPPS_URL` | Power Apps player URL for the IssueReporting app |
+
+### 4. Configure Kane CLI project (once)
+
+```bash
+kane-cli config project 01J2VAWPNBPA21T0BW44JW026X
+kane-cli config folder 01KPD0NC5ZXZD9EXB23QCATTG2
+```
 
 ---
 
-## GitHub Actions — automatic trigger
+## Running the Pipeline
 
-Push any change to `requirements/search.txt` and the full pipeline runs automatically.
+### Automated (GitHub Actions)
+
+Push any change to a `requirements/` file:
 
 ```bash
-vim requirements/search.txt     # add or edit a requirement
-git add requirements/search.txt
-git commit -m "feat: add new acceptance criterion"
+# Add a new acceptance criterion
+echo "
+Title: Product Comparison
+Acceptance Criteria:
+User can add two products to a comparison list and view differences side by side
+" >> requirements/search.txt
+
+git add requirements/
+git commit -m "feat: add product comparison requirement"
 git push
 ```
 
-| Workflow | Trigger | Description |
-|---|---|---|
-| **Agentic STLC Pipeline** | Push to `requirements/**` or `scenarios/**` | Automated STLC orchestration using Kane AI |
+The pipeline runs automatically. Kane AI verifies the new criterion, a Playwright test is generated (from Kane's own exported code, or the curated fallback), and HyperExecute executes it across all configured browsers.
 
-Watch it run: **GitHub > Actions**
+**Manual dispatch with options:**
 
-### Manual trigger
+Go to **Actions → Agentic STLC Pipeline → Run workflow**
 
-Go to **Actions > Agentic STLC Pipeline > Run workflow**. Set `full_run` to `true` to run all scenarios (not just changed ones).
+| Input | Description |
+|---|---|
+| `full_run` | `true` = run all active scenarios, `false` = only new/updated (incremental) |
+| `demo_mode` | `true` = skip live Kane calls, use pre-generated results (for demos) |
 
----
+### Local Execution
 
-## Running locally
-
-### Full pipeline
-
+**Stage 1 — Kane AI verification:**
 ```bash
-# Run each stage — credentials are passed inline, no kane-cli login needed
-python ci/analyze_requirements.py
-python ci/manage_scenarios.py
-python ci/generate_tests_from_scenarios.py
-python ci/select_tests.py
-```
-
-Then run on HyperExecute:
-
-```bash
-# Linux / macOS
-curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
-chmod +x hyperexecute
-./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
-
-# Windows PowerShell
-Invoke-WebRequest -Uri https://downloads.lambdatest.com/hyperexecute/windows/hyperexecute.exe -OutFile hyperexecute.exe
-./hyperexecute.exe --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
-```
-
-Then generate reports:
-
-```bash
-python ci/build_traceability.py
-python ci/release_recommendation.py
-cat reports/release_recommendation.md
-```
-
-### Run a single Selenium test
-
-```bash
-# Set credentials first
 export LT_USERNAME=your_username
 export LT_ACCESS_KEY=your_access_key
 
-# Single test — opens a real Chrome session on LambdaTest Grid
-PYTHONPATH=. pytest "tests/selenium/test_products.py::test_sc_001_navigate_to_products_and_view_list" -v -s
-
-# All tests
-PYTHONPATH=. pytest tests/selenium/test_products.py -v -s
+python ci/analyze_requirements.py --requirements requirements/search.txt
 ```
 
-After each test the conftest fixture writes a session result and prints the LambdaTest Automate link:
-
+**Stages 2–9 — Full orchestration:**
+```bash
+python ci/agent.py
 ```
-PASSED  tests/selenium/test_products.py::test_sc_001_navigate_to_products_and_view_list
 
-Session: https://automation.lambdatest.com/test?testID=...
+**Full run (all scenarios):**
+```bash
+FULL_RUN=true python ci/agent.py
+```
+
+**Download HyperExecute CLI manually (Linux/macOS):**
+```bash
+curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+chmod +x hyperexecute
+./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
+```
+
+**Run Playwright tests directly (after Stage 3 generates the file):**
+```bash
+# Single test, single browser
+PYTHONPATH=. pytest "tests/playwright/test_powerapps.py::test_sc_001_..." -v -s
+
+# All tests, all browsers
+BROWSERS=chrome,firefox PYTHONPATH=. pytest tests/playwright/test_powerapps.py -v
+
+# With debug artifact output
+REPORT_DEBUG=true python ci/normalize_artifacts.py
+```
+
+**Generate reports only (from existing artifacts):**
+```bash
+python ci/normalize_artifacts.py
+python ci/build_traceability.py
+python ci/release_recommendation.py
+python ci/coverage_analysis.py
+python ci/write_github_summary.py
+cat reports/release_recommendation.md
+```
+
+**Verify a single requirement with Kane AI:**
+```bash
+kane-cli run \
+  "On https://ecommerce-playground.lambdatest.io/ — User can search for a product by name and see relevant results" \
+  --username "$LT_USERNAME" \
+  --access-key "$LT_ACCESS_KEY" \
+  --agent --headless --timeout 120 --max-steps 15
 ```
 
 ---
 
-## Kane CLI — verify any requirement manually (Stage 1)
+## Adding New Requirements
 
-```bash
-# Verify a requirement directly — pass credentials inline, never use kane-cli login in scripts
-kane-cli run \
-  "Navigate to the product section and verify a list of available products is displayed" \
-  --url https://ecommerce-playground.lambdatest.io/ \
-  --username "$LT_USERNAME" \
-  --access-key "$LT_ACCESS_KEY" \
-  --agent --headless --timeout 120 --max-steps 15
+1. Edit `requirements/search.txt` — add user stories with `Acceptance Criteria:` sections:
 
-# Exit codes: 0=passed, 1=failed, 2=error, 3=timeout
-# Parse result
-kane-cli run "..." --username "$LT_USERNAME" --access-key "$LT_ACCESS_KEY" \
-  --agent --headless 2>/dev/null | tail -1 | jq '{status, one_liner, duration}'
-
-# Run all Kane objectives in parallel
-RESULTS_DIR=$(mktemp -d)
-for obj in $(jq -r '.[] | @base64' kane/objectives.json); do
-  data=$(echo "$obj" | base64 --decode)
-  id=$(echo "$data" | jq -r '.scenario_id')
-  kane-cli run \
-    "$(echo "$data" | jq -r '.objective')" \
-    --url "$(echo "$data" | jq -r '.url')" \
-    --agent --headless --timeout "$(echo "$data" | jq -r '.timeout')" \
-    > "$RESULTS_DIR/$id.ndjson" 2>&1 &
-done
-wait
-for f in "$RESULTS_DIR"/*.ndjson; do
-  id=$(basename "$f" .ndjson)
-  result=$(tail -1 "$f")
-  echo "$id | $(echo "$result" | jq -r '.status') | $(echo "$result" | jq -r '.one_liner')"
-done
 ```
+Title: Product Comparison
+As a shopper, I want to compare products side by side.
+
+Acceptance Criteria:
+User can add two products to a comparison list from the catalog page
+User can view the comparison page showing product attributes in columns
+User can remove a product from the comparison list
+```
+
+2. Commit and push. The pipeline:
+   - Runs Kane AI on each new criterion (functional verification + code export)
+   - Assigns new SC-NNN / TC-NNN IDs (incremental, never reused)
+   - Generates Playwright tests from Kane's exported code
+   - Executes new tests on HyperExecute (incremental mode — only new criteria)
+   - Updates the traceability matrix with the new requirements
+
+3. For the first run after adding new criteria, set `FULL_RUN=true` if you want all scenarios to re-run together.
 
 ---
 
 ## Model Context Protocol (MCP)
 
-Allow Claude to query LambdaTest directly from the chat interface — list tests, check run status, pull logs.
-
-Add to `claude_desktop_config.json` or your MCP settings:
+The pipeline uses MCP to communicate with LambdaTest services. For local Claude Code usage, add to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "mcp-lambdatest-stdio": {
+    "mcp-lambdatest": {
       "disabled": false,
       "timeout": 100,
       "command": "npx",
@@ -346,24 +1156,25 @@ Add to `claude_desktop_config.json` or your MCP settings:
 }
 ```
 
+This enables Claude Code to query LambdaTest directly — list test sessions, check build status, pull failure logs — during local debugging.
+
 ---
 
-## Adapting to other CI/CD tools
+## Adapting to Other CI/CD Tools
 
-Each stage is a single portable command. Copy it into any CI tool:
+Each stage is a single portable Python command. The CI tool only needs Python 3.11, LambdaTest credentials, and the HyperExecute CLI binary.
 
 ### GitLab CI
 
 ```yaml
-stages: [analyze, scenarios, tests, execute, report]
+stages: [analyze, orchestrate]
 
-analyze-requirements:
+analyze:
   stage: analyze
   image: node:22
   script:
-    - npm install -g @testmuai/kane-cli
-    - kane-cli login --username $LT_USERNAME --access-key $LT_ACCESS_KEY
     - pip install -r requirements.txt
+    - npm install -g @testmuai/kane-cli
     - python ci/analyze_requirements.py
   artifacts:
     paths: [requirements/analyzed_requirements.json]
@@ -371,17 +1182,24 @@ analyze-requirements:
     LT_USERNAME: $LT_USERNAME
     LT_ACCESS_KEY: $LT_ACCESS_KEY
 
-manage-scenarios:
-  stage: scenarios
+orchestrate:
+  stage: orchestrate
   image: python:3.11
+  dependencies: [analyze]
   script:
     - pip install -r requirements.txt
-    - python ci/manage_scenarios.py
+    - curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+    - chmod +x hyperexecute
+    - python ci/agent.py
   artifacts:
-    paths: [scenarios/scenarios.json]
+    paths: [reports/]
+  variables:
+    LT_USERNAME: $LT_USERNAME
+    LT_ACCESS_KEY: $LT_ACCESS_KEY
+    FULL_RUN: "true"
 ```
 
-### Jenkins (Declarative Pipeline)
+### Jenkins
 
 ```groovy
 pipeline {
@@ -391,102 +1209,102 @@ pipeline {
         LT_ACCESS_KEY = credentials('lt-access-key')
     }
     stages {
-        stage('Analyze')  { steps { sh 'python ci/analyze_requirements.py' } }
-        stage('Manage')   { steps { sh 'python ci/manage_scenarios.py' } }
-        stage('Generate') { steps { sh 'python ci/generate_tests_from_scenarios.py' } }
-        stage('Execute')  {
-            steps {
-                sh 'curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute && chmod +x hyperexecute'
-                sh './hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml'
-            }
+        stage('Stage 1 — KaneAI') {
+            steps { sh 'python ci/analyze_requirements.py' }
         }
-        stage('Report') {
+        stage('Stages 2–9 — Orchestrate') {
             steps {
-                sh 'python ci/build_traceability.py'
-                sh 'python ci/release_recommendation.py'
+                sh 'curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute && chmod +x hyperexecute'
+                sh 'python ci/agent.py'
             }
         }
     }
-    post { always { archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true } }
+    post {
+        always { archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true }
+    }
 }
 ```
 
-### Bitbucket Pipelines
+---
 
-```yaml
-pipelines:
-  default:
-    - step:
-        name: Analyze + Manage + Generate
-        image: node:22
-        script:
-          - npm install -g @testmuai/kane-cli
-          - pip install -r requirements.txt
-          - python ci/analyze_requirements.py
-          - python ci/manage_scenarios.py
-          - python ci/generate_tests_from_scenarios.py
-    - step:
-        name: Execute on HyperExecute
-        script:
-          - curl -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute && chmod +x hyperexecute
-          - ./hyperexecute --user $LT_USERNAME --key $LT_ACCESS_KEY --config hyperexecute.yaml
+## Sample Pipeline Output
+
+### Stage Status Summary
+
+```
+| Stage | Name                          | Status | Normalized | Details                              |
+|-------|-------------------------------|--------|------------|--------------------------------------|
+| 1     | KaneAI Verification           | ✅     | PASSED     | 7/7 criteria passed                  |
+| 2–4   | Scenarios + Test Gen          | ✅     | PASSED     | 7 active tests generated             |
+| 5     | HyperExecute Regression       | ✅     | PASSED     | 28/28 tasks · parser: api_ok         |
+| 6     | Result Aggregation            | ✅     | PASSED     | 28 results normalized                |
+| 7–8   | Traceability + Verdict        | 🟢     | GREEN      | 100% pass rate across 4 browsers     |
+```
+
+### Release Recommendation
+
+```markdown
+# QA Release Recommendation
+
+**Verdict:** GREEN
+
+## Summary
+- Requirements covered: 7/7
+- Scenarios executed: 7
+- Pass rate: 100.0% (7 passed, 0 failed)
+- Overall health: healthy
+- Risk level: low
+- Kane AI pass rate: 100.0%
+
+## Failing Scenarios
+- None
+
+## Recommendation
+Approve release because coverage is complete and executed tests passed.
+```
+
+### Coverage Heatmap
+
+```
+| Feature        | Criticality | Total | Covered | Partial | Uncovered |
+|----------------|-------------|-------|---------|---------|-----------|
+| CART           | 🔴 HIGH     | 2     | 2       | 0       | 0         |
+| AUTH           | 🔴 HIGH     | 0     | 0       | 0       | 0         |
+| SEARCH         | 🟡 MEDIUM   | 1     | 1       | 0       | 0         |
+| CATALOG        | 🟡 MEDIUM   | 1     | 1       | 0       | 0         |
+| PRODUCT_DETAIL | 🟡 MEDIUM   | 1     | 1       | 0       | 0         |
+| FILTER         | 🟢 LOW      | 1     | 1       | 0       | 0         |
+| GUEST          | 🟢 LOW      | 1     | 1       | 0       | 0         |
 ```
 
 ---
 
-## Traceability matrix (auto-generated)
+## Architectural Decisions
 
-`reports/traceability_matrix.md` maps every requirement to its end-to-end result, combining Kane AI functional verification with HyperExecute regression execution:
-
-| Requirement | Scenario | Test Case | Kane AI (Functional) | HyperExecute (Regression) | Functional + Regression Result |
-|---|---|---|---|---|---|
-| Navigate to IssueReporting app and see issues list | SC-001 | TC-001 | ✅ passed | ✅ passed | ✅ passed |
-| Create a new issue report | SC-002 | TC-002 | ✅ passed | ✅ passed | ✅ passed |
-| View issue details with status and description | SC-003 | TC-003 | ✅ passed | ✅ passed | ✅ passed |
-| Filter issues list by status | SC-004 | TC-004 | ✅ passed | ✅ passed | ✅ passed |
-| Navigate back from detail view to main list | SC-005 | TC-005 | ✅ passed | ❌ failed | ❌ failed |
-
-`reports/release_recommendation.md` gives the final verdict:
-
-```
-VERDICT: YELLOW — 4/5 requirements fully verified. SC-005 requires investigation
-before release. All other acceptance criteria confirmed on the live site.
-```
+| Decision | Rationale |
+|---|---|
+| **Scenario IDs are immutable** | SC-001 always maps to the same requirement. Renumbering breaks traceability history. Deprecated scenarios stay in the catalog forever for audit and trend analysis. |
+| **`test_powerapps.py` is auto-generated** | The file is overwritten on every pipeline run. Editing it manually creates drift between requirements and tests — the entire point of the pipeline is to eliminate that drift. |
+| **No LLM for test generation** | The pipeline is intentionally deterministic. Kane AI is a specialized browser automation agent that exports the Playwright code it actually executed. LLMs would introduce non-determinism and token cost into a step that has a better tool. |
+| **Both Kane AND Playwright must pass** | Kane verifies the requirement is observable on the live site (functional). Playwright verifies it remains observable across browsers and builds (regression). A requirement passing only one is incomplete evidence. |
+| **Incremental execution by default** | Only new and updated scenarios run on each push. This keeps the feedback loop fast. `FULL_RUN=true` is available for full regression on demand. |
+| **Status derived from tasks when API fails** | The HyperExecute job status API (via MCP) can be temporarily unreachable. Rather than reporting `"unknown"`, the pipeline derives the status from individual task results — if all 14 tasks passed, the job status is `PASSED`. This makes reporting reliable regardless of API availability. |
+| **Multi-pattern job ID extraction** | HyperExecute CLI output format varies across CLI versions. Using four regex patterns ensures job ID extraction is resilient to format changes without requiring a CLI version pin. |
 
 ---
 
-## Scenario and test mapping
+## Roadmap
 
-| Scenario | Test function | Acceptance criterion |
-|---|---|---|
-| SC-001 | `test_sc_001_navigate_to_app_and_see_issues_list` | Navigate to IssueReporting app and see issues list |
-| SC-002 | `test_sc_002_create_new_issue_report` | Create a new issue report with title and category |
-| SC-003 | `test_sc_003_view_issue_details` | View issue details including status and description |
-| SC-004 | `test_sc_004_filter_issues_by_status` | Filter issues by status to see active/resolved items |
-| SC-005 | `test_sc_005_navigate_back_from_detail_view` | Navigate back from detail view to main issues list |
-
----
-
-## Adding new requirements
-
-1. Edit `requirements/search.txt` — add new user stories or acceptance criteria in plain English
-2. Commit and push:
-
-```bash
-git add requirements/search.txt
-git commit -m "feat: add requirement for product comparison"
-git push
-```
-
-GitHub Actions automatically runs the full pipeline. Kane AI verifies the new criterion (functional), the orchestrator generates the regression test, and HyperExecute runs it at scale — no manual scripting.
-
-To run just the affected stages locally:
-
-```bash
-python ci/analyze_requirements.py
-python ci/manage_scenarios.py
-python ci/generate_tests_from_scenarios.py
-```
+| Capability | Description |
+|---|---|
+| **Self-healing locators** | When a locator fails, automatically suggest an updated selector using LambdaTest AI |
+| **AI risk scoring** | Score requirements by failure probability based on historical run data |
+| **Visual regression** | Add screenshot comparison via LambdaTest Smart UI to the regression stage |
+| **API test orchestration** | Extend Kane AI verification to API-level acceptance criteria alongside UI tests |
+| **Autonomous flaky remediation** | Detect flaky tests, auto-add retry logic or locator improvements via CI |
+| **Accessibility analysis** | Integrate axe-core or LambdaTest Accessibility to surface a11y violations per requirement |
+| **Cross-repo traceability** | Link acceptance criteria to GitHub Issues or Jira tickets in the traceability matrix |
+| **Progressive coverage scoring** | Track coverage score across pipeline runs to detect coverage regression over time |
 
 ---
 
