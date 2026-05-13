@@ -1,37 +1,17 @@
-[
-  {
-    "scenario_id": "SC-001",
-    "test_case_id": "TC-001",
-    "objective": "searched for products on ecommerce-playground.lambdatest.io"
-  },
-  {
-    "scenario_id": "SC-002",
-    "test_case_id": "TC-002",
-    "objective": "attempted to open the cart and select a product option on ecommerce-playground.lambdatest.io"
-  },
-  {
-    "scenario_id": "SC-003",
-    "test_case_id": "TC-003",
-    "objective": "opened the Laptops product catalog on ecommerce-playground.lambdatest.io"
-  },
-  {
-    "scenario_id": "SC-004",
-    "test_case_id": "TC-004",
-    "objective": "attempted to filter Components by Apple on ecommerce-playground.lambdatest.io"
-  },
-  {
-    "scenario_id": "SC-005",
-    "test_case_id": "TC-005",
-    "objective": "opened a product detail page on ecommerce-playground.lambdatest.io"
-  },
-  {
-    "scenario_id": "SC-006",
-    "test_case_id": "TC-006",
-    "objective": "browsed the homepage and product listings on ecommerce-playground.lambdatest.io"
-  },
-  {
-    "scenario_id": "SC-007",
-    "test_case_id": "TC-007",
-    "objective": "searched for an iPhone on ecommerce-playground.lambdatest.io"
-  }
-]
+{
+  "SC-001": "Verify: User can add a product to the cart from the product detail page and see the cart item count update",
+  "SC-002": "Verify: User can open the cart dropdown and see the list of added items with their names and prices",
+  "SC-003": "Verify: User can navigate to the Laptops product catalog and see a grid of product listings",
+  "SC-004": "Verify: User can apply a manufacturer brand filter from the sidebar to narrow product results",
+  "SC-005": "Verify: User can click a product thumbnail to open its detail page and see the product name and price",
+  "SC-006": "Verify: User can browse the homepage and product listings without logging in as a guest",
+  "SC-007": "Verify: User can search for a product by name using the search bar and see relevant results",
+  "SC-008": "Verify: User can register a new account by filling in first name last name email telephone and password fields",
+  "SC-009": "Verify: User can log in with a registered email address and password and land on the account dashboard",
+  "SC-010": "Verify: User can log out from the account and be redirected to the home page",
+  "SC-011": "Verify: User can remove an item from the shopping cart and see the cart update with the item gone",
+  "SC-012": "Verify: User can update the quantity of an item in the shopping cart and see the line total recalculate",
+  "SC-013": "Verify: User can sort products by price low to high and see the listing order change",
+  "SC-014": "Verify: User can add a product to the wish list from the product detail page and view it in the wishlist",
+  "SC-015": "Verify: User can complete a guest checkout by entering a shipping address and selecting flat rate shipping"
+}
