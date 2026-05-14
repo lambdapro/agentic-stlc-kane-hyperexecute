@@ -90,6 +90,21 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    # Write JSON so the orchestrate composite action can read the verdict
+    json_path = out_path.with_suffix(".json")
+    json_data = {
+        "verdict":                verdict,
+        "pass_rate":              summary.get("pass_rate", 0),
+        "requirements_covered":   summary.get("requirements_covered", 0),
+        "requirements_total":     summary.get("requirements_total", 0),
+        "executed":               summary.get("executed", 0),
+        "passed":                 summary.get("passed", 0),
+        "failing_scenarios":      failing,
+        "untested_requirements":  untested,
+        "recommendation":         recommendation,
+    }
+    json_path.write_text(json.dumps(json_data, indent=2) + "\n", encoding="utf-8")
+
     print_stage_result("8", "RELEASE_RECOMMENDATION", {
         "Verdict":      verdict,
         "Pass rate":    f"{summary.get('pass_rate', 0)}%",

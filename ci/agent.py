@@ -867,10 +867,14 @@ _CRITICAL_SCRIPTS = [
     "ci/write_github_summary.py",
 ]
 # Advisory scripts log warnings but never block the pipeline.
+# Order matters: fetch_rca must run before failure_intelligence (reads rca_report.json),
+# and failure_intelligence must run before self_healing (reads failure_intelligence.json).
 _ADVISORY_SCRIPTS = [
     "ci/impact_analysis.py",
     "ci/quality_gates.py",
     "ci/fetch_rca.py",
+    "ci/failure_intelligence.py",
+    "ci/self_healing.py",
     "ci/validate_report.py",
     "ci/pipeline_metrics.py",
 ]

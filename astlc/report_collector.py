@@ -145,6 +145,7 @@ class ReportCollector:
         self._parse_rca(result)
         self._parse_confidence(result)
         self._parse_api_details(result)
+        self._parse_failure_intelligence(result)
         self._build_links(result)
 
         return result
@@ -206,9 +207,12 @@ class ReportCollector:
             return
         summary = data.get("summary", {})
         result["coverage"] = {
-            "coverage_pct":       summary.get("coverage_pct", 0),
-            "total_requirements": summary.get("total_requirements", 0),
-            "covered_full":       summary.get("fully_covered", summary.get("covered", 0)),
+            # build_traceability.py writes "pass_rate"; fall back to "coverage_pct" for compat
+            "coverage_pct":       summary.get("pass_rate", summary.get("coverage_pct", 0)),
+            # build_traceability.py writes "requirements_total"
+            "total_requirements": summary.get("requirements_total", summary.get("total_requirements", 0)),
+            # build_traceability.py writes "requirements_covered"
+            "covered_full":       summary.get("requirements_covered", summary.get("fully_covered", summary.get("covered", 0))),
         }
 
     def _parse_quality_gates(self, result: dict) -> None:
@@ -232,7 +236,9 @@ class ReportCollector:
         data = self._read_json(p)
         if not data:
             return
-        result["rca"] = {"failures": data.get("failures", [])}
+        # fetch_rca.py writes "analyses"; legacy shape uses "failures" — accept both
+        failures = data.get("failures") or data.get("analyses") or []
+        result["rca"] = {"failures": failures}
 
     def _parse_confidence(self, result: dict) -> None:
         p = self._find_first("scenario-confidence-report.json")
@@ -242,6 +248,22 @@ class ReportCollector:
         if not data:
             return
         result["confidence"] = {"summary": data.get("summary", {})}
+
+    def _parse_failure_intelligence(self, result: dict) -> None:
+        """Deep failure classification written by ci/failure_intelligence.py."""
+        p = self._find_first("failure_intelligence.json")
+        if not p:
+            return
+        data = self._read_json(p)
+        if not data:
+            return
+        result["failure_intelligence"] = {
+            "total_failures":   data.get("total_failures", 0),
+            "auto_remediable":  data.get("auto_remediable", 0),
+            "failure_clusters": data.get("failure_clusters", {}),
+            "failures":         data.get("failures", []),
+            "summary_by_type":  data.get("summary_by_type", {}),
+        }
 
     def _parse_api_details(self, result: dict) -> None:
         """Extract HyperExecute summary written by ci/agent.py Stage 6."""

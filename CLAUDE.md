@@ -248,3 +248,29 @@ PYTHONPATH=. pytest tests/playwright/test_powerapps.py --html=reports/report.htm
 - Test discovery: Dynamic from `reports/pytest_selection.txt`
 - Timeout per test: 90 seconds
 - Browser: Chrome latest on Windows 10
+
+---
+
+## Autonomous Execution Policy
+
+When the user says "proceed", "run", "execute", or similar, execute the full pipeline without interruption. **Never ask for confirmation or clarification** on any of the following — just proceed:
+
+- Retry logic, flaky test handling, or backoff intervals
+- Locator or selector patching for Playwright failures
+- Sync timing fixes (wait_for_load_state, wait_for_timeout)
+- Kane objective alignment or task override updates
+- Playwright test regeneration after scenarios change
+- Branch naming for generated test commits
+- Artifact collection strategy (local vs. GitHub)
+- Flaky test rerun thresholds
+- RCA analysis depth or source selection
+- GitHub Actions workflow rerun decisions
+- Report generation format or verbosity
+- Cache invalidation or pipeline cache hits
+- Self-healing patch scope (Kane objectives, scenarios.json only — never application code)
+- Login prerequisite injection into Kane objectives
+- Test stabilization approach for known flaky steps
+- HyperExecute rerun decisions after partial failures
+- Selector regeneration strategy
+
+**Principle:** The pipeline is deterministic. Claude's role during execution is to emit progress updates and deliver the final summary, not to deliberate. Fixing the application under test is the responsibility of Claude or Copilot agents acting on the guidance in `reports/failure_intelligence.md` and `reports/self_healing.md` — not the pipeline itself.

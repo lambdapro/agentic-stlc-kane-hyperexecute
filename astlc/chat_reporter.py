@@ -187,7 +187,7 @@ class ChatReporter:
                 lines.append(f"- {icon} **{j['name']}**{dur_str}: {j.get('conclusion', j.get('status', ''))}")
             lines.append("")
 
-        # RCA
+        # RCA — from LambdaTest API (raw session errors)
         rca = result.get("rca", {})
         failures_by_cat: dict[str, list[dict]] = {}
         for f in rca.get("failures", []):
@@ -206,6 +206,48 @@ class ChatReporter:
                     if fix:
                         lines.append(f"  _Suggested fix: {fix}_")
             lines.append("")
+
+        # Failure Intelligence — deep classification from ci/failure_intelligence.py
+        fi = result.get("failure_intelligence", {})
+        fi_failures = fi.get("failures", [])
+        if fi_failures:
+            total_fi = fi.get("total_failures", len(fi_failures))
+            auto_rem = fi.get("auto_remediable", 0)
+            lines += ["## Failure Intelligence", ""]
+            lines.append(
+                f"**{total_fi}** failure(s) classified — "
+                f"**{auto_rem}** with remediation guidance available"
+            )
+            lines.append("")
+            clusters = fi.get("failure_clusters", {})
+            if clusters:
+                for ftype, scs in clusters.items():
+                    lines.append(f"- `{ftype}`: {', '.join(scs)}")
+                lines.append("")
+            for f in fi_failures[:5]:
+                sc_id      = f.get("failed_scenario", "SC-???")
+                ftype      = f.get("failure_type", "UNKNOWN_FAILURE")
+                kane_st    = f.get("kane_status", "unknown")
+                one_liner  = f.get("kane_one_liner", "")
+                pw_status  = f.get("playwright_status", {})
+                lt_rca     = f.get("lt_rca", "")
+                remediation = f.get("auto_remediation", {})
+                rec_action  = remediation.get("recommended_action", "")
+                patch_target = remediation.get("patch_target", "none")
+                pw_inline = (
+                    " | ".join(f"{br}: {st}" for br, st in pw_status.items())
+                    if pw_status else "no data"
+                )
+                lines.append(f"### {sc_id} — `{ftype}`")
+                lines.append(f"- Kane: {kane_st}" + (f' — "{one_liner}"' if one_liner else ""))
+                lines.append(f"- Playwright: {pw_inline}")
+                if lt_rca:
+                    lines.append(f"- LT RCA: {lt_rca[:200]}")
+                if rec_action:
+                    lines.append(f"- Guidance: _{rec_action}_")
+                if patch_target and patch_target != "none":
+                    lines.append(f"- Patch target: `{patch_target}`")
+                lines.append("")
 
         # Links
         links = result.get("links", {})
