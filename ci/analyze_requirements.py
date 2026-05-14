@@ -138,6 +138,79 @@ def make_title(description):
     return " ".join(words[:10]).strip().capitalize()
 
 
+# Optimized Kane task overrides: precise, flow-aware, termination-explicit objectives
+# Keys are canonical substrings from the acceptance criterion descriptions.
+# Values are task strings passed directly to `kane-cli run`.
+_KANE_TASK_OVERRIDES: dict[str, str] = {
+    "add a product to the cart from the product detail page": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28"
+        " — click the Add to Cart button — verify the cart icon in the top navigation shows at least 1 item."
+        " Stop immediately once the cart count is updated. Do not navigate further."
+    ),
+    "open the cart dropdown and see the list of added items": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28"
+        " — click Add to Cart — then click the cart icon in the top-right header to open the cart dropdown"
+        " — verify at least one item name and price appears in the dropdown."
+        " Stop once the item is visible in the cart dropdown."
+    ),
+    "log in with a registered email address and password and land on the account dashboard": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=account/login"
+        " — enter valid credentials in the Email Address and Password fields — click the Login button"
+        " — verify you reach the My Account page (URL contains route=account/account)."
+        " Stop immediately once the account dashboard heading is visible. Do not explore further."
+    ),
+    "log out from the account and be redirected to the home page": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=account/login"
+        " — log in with valid credentials — once on the account dashboard, click the My Account"
+        " dropdown in the top navigation and click Logout"
+        " — verify the page redirects to the home page."
+        " Stop once the home page is confirmed."
+    ),
+    "remove an item from the shopping cart and see the cart update with the item gone": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28"
+        " — click Add to Cart — then navigate directly to"
+        " https://ecommerce-playground.lambdatest.io/index.php?route=checkout/cart"
+        " — click the Remove button next to the item"
+        " — verify the cart page shows Your shopping cart is empty."
+        " Stop immediately after the empty cart message is confirmed."
+    ),
+    "update the quantity of an item in the shopping cart and see the line total recalculate": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28"
+        " — click Add to Cart — then navigate directly to"
+        " https://ecommerce-playground.lambdatest.io/index.php?route=checkout/cart"
+        " — change the quantity input field value to 2 — click the Update button"
+        " — verify the line total price reflects 2 items."
+        " Stop once the recalculated total is visible."
+    ),
+    "add a product to the wish list from the product detail page and view it in the wishlist": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=account/login"
+        " — log in with valid credentials — then navigate to"
+        " https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=40"
+        " — click the Add to Wish List heart icon — verify a success message or wishlist page appears."
+        " Stop once wishlist confirmation is visible."
+    ),
+    "complete a guest checkout by entering a shipping address and selecting flat rate shipping": (
+        "Go to https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28"
+        " — click Add to Cart — navigate to"
+        " https://ecommerce-playground.lambdatest.io/index.php?route=checkout/checkout"
+        " — select the Guest Checkout option — fill in the billing address: First Name Test, Last Name User,"
+        " Email guest@test.com, Address 123 Main St, City Austin, Postcode 78701,"
+        " Country United States, State Texas"
+        " — select Flat Rate shipping — verify you can proceed to the payment confirmation step."
+        " Stop once shipping method is confirmed."
+    ),
+}
+
+
+def _get_kane_task(description: str) -> str:
+    """Return an optimized Kane task or the generic fallback."""
+    dl = description.lower()
+    for keyword, task in _KANE_TASK_OVERRIDES.items():
+        if keyword in dl:
+            return task
+    return f"On {TARGET_URL} — {description}"
+
+
 EXIT_STATUS = {0: "passed", 1: "failed", 2: "error", 3: "timeout"}
 
 
@@ -192,7 +265,7 @@ def run_kane(index, description):
         "wss://cdp.lambdatest.com/playwright?capabilities="
         + urllib.parse.quote(json.dumps(caps))
     )
-    task = f"On {TARGET_URL} — {description}"
+    task = _get_kane_task(description)
     command = [
         KANE_EXE, "run", task,
         "--username", username,
@@ -201,7 +274,7 @@ def run_kane(index, description):
         "--agent",
         "--headless",
         "--timeout", "120",
-        "--max-steps", "15",
+        "--max-steps", "20",
         "--code-export",
         "--code-language", "python",
         "--skip-code-validation",

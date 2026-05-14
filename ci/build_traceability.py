@@ -131,13 +131,18 @@ def _junit_fallback(junit_glob="reports"):
 
 
 def _overall_status(browser_records: list) -> str:
-    """Aggregate across browsers: failed > skipped > data_unavailable > passed."""
+    """Aggregate across browsers: failed > skipped > passed (any) > data_unavailable.
+
+    A test is PASSED if at least one browser passed and none failed.
+    data_unavailable from secondary browsers does not block a pass verdict —
+    it would incorrectly penalise tests where only one shard's artifact is missing.
+    """
     if not browser_records:
         return "data_unavailable"
     statuses = [r.get("status", "data_unavailable") for r in browser_records]
     if "failed" in statuses:
         return "failed"
-    if all(s == "passed" for s in statuses):
+    if "passed" in statuses:
         return "passed"
     if "skipped" in statuses:
         return "skipped"

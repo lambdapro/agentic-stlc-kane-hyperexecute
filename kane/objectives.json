@@ -1,17 +1,77 @@
-{
-  "SC-001": "Verify: User can add a product to the cart from the product detail page and see the cart item count update",
-  "SC-002": "Verify: User can open the cart dropdown and see the list of added items with their names and prices",
-  "SC-003": "Verify: User can navigate to the Laptops product catalog and see a grid of product listings",
-  "SC-004": "Verify: User can apply a manufacturer brand filter from the sidebar to narrow product results",
-  "SC-005": "Verify: User can click a product thumbnail to open its detail page and see the product name and price",
-  "SC-006": "Verify: User can browse the homepage and product listings without logging in as a guest",
-  "SC-007": "Verify: User can search for a product by name using the search bar and see relevant results",
-  "SC-008": "Verify: User can register a new account by filling in first name last name email telephone and password fields",
-  "SC-009": "Verify: User can log in with a registered email address and password and land on the account dashboard",
-  "SC-010": "Verify: User can log out from the account and be redirected to the home page",
-  "SC-011": "Verify: User can remove an item from the shopping cart and see the cart update with the item gone",
-  "SC-012": "Verify: User can update the quantity of an item in the shopping cart and see the line total recalculate",
-  "SC-013": "Verify: User can sort products by price low to high and see the listing order change",
-  "SC-014": "Verify: User can add a product to the wish list from the product detail page and view it in the wishlist",
-  "SC-015": "Verify: User can complete a guest checkout by entering a shipping address and selecting flat rate shipping"
-}
+[
+  {
+    "scenario_id": "SC-001",
+    "test_case_id": "TC-001",
+    "objective": "Navigate to product_id=28 — click Add to Cart — verify cart icon count updates to 1. Stop once cart count is confirmed."
+  },
+  {
+    "scenario_id": "SC-002",
+    "test_case_id": "TC-002",
+    "objective": "Navigate to product_id=28 — click Add to Cart — open cart dropdown via top-right icon — verify item name and price visible. Stop once item is confirmed in dropdown."
+  },
+  {
+    "scenario_id": "SC-003",
+    "test_case_id": "TC-003",
+    "objective": "Navigate to Laptops category (path=18) — verify product grid with thumbnails is visible. Stop once confirmed."
+  },
+  {
+    "scenario_id": "SC-004",
+    "test_case_id": "TC-004",
+    "objective": "Navigate to Components category (path=25) — click Apple in Manufacturer sidebar — verify filtered results load. Stop once filtered list is confirmed."
+  },
+  {
+    "scenario_id": "SC-005",
+    "test_case_id": "TC-005",
+    "objective": "Navigate to product_id=28 — verify product name (h1) and price are visible. Stop once both confirmed."
+  },
+  {
+    "scenario_id": "SC-006",
+    "test_case_id": "TC-006",
+    "objective": "Navigate to homepage without login — verify banner and product listing section are visible. Stop once confirmed."
+  },
+  {
+    "scenario_id": "SC-007",
+    "test_case_id": "TC-007",
+    "objective": "Navigate to homepage — type iPhone in search bar — press Enter — verify results page shows product thumbnails. Stop once results confirmed."
+  },
+  {
+    "scenario_id": "SC-008",
+    "test_case_id": "TC-008",
+    "objective": "Navigate to /index.php?route=account/register — verify all fields: first name, last name, email, telephone, password are present. Stop once form fields confirmed."
+  },
+  {
+    "scenario_id": "SC-009",
+    "test_case_id": "TC-009",
+    "objective": "Navigate to /index.php?route=account/login — enter credentials — click Login — verify URL contains route=account/account. Stop immediately once dashboard is confirmed. Do not navigate further."
+  },
+  {
+    "scenario_id": "SC-010",
+    "test_case_id": "TC-010",
+    "objective": "Navigate to login page — log in — click My Account dropdown — click Logout — verify redirect to home page. Stop once home page confirmed."
+  },
+  {
+    "scenario_id": "SC-011",
+    "test_case_id": "TC-011",
+    "objective": "Navigate to product_id=28 — click Add to Cart — navigate to checkout/cart — click Remove — verify cart shows empty. Stop once empty message confirmed."
+  },
+  {
+    "scenario_id": "SC-012",
+    "test_case_id": "TC-012",
+    "objective": "Navigate to product_id=28 — click Add to Cart — navigate to checkout/cart — change quantity to 2 — click Update — verify line total recalculates. Stop once updated total confirmed."
+  },
+  {
+    "scenario_id": "SC-013",
+    "test_case_id": "TC-013",
+    "objective": "Navigate to category path=20 — select Price (Low > High) from Sort By — verify product grid order changes. Stop once sort applied."
+  },
+  {
+    "scenario_id": "SC-014",
+    "test_case_id": "TC-014",
+    "objective": "Log in — navigate to product_id=40 — click Add to Wish List — verify success message or wishlist page. Stop once confirmation visible."
+  },
+  {
+    "scenario_id": "SC-015",
+    "test_case_id": "TC-015",
+    "objective": "Navigate to product_id=28 — click Add to Cart — navigate to checkout/checkout — select Guest Checkout — fill address form — select Flat Rate shipping — verify proceed to payment. Stop once shipping confirmed."
+  }
+]

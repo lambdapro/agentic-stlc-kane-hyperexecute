@@ -16,7 +16,7 @@
     "last_verified": "2026-05-11",
     "description": "User can add a product to the cart from the product detail page and see the cart item count update",
     "feature": "CART",
-    "kane_objective": "Verify: User can add a product to the cart from the product detail page and see the cart item count update"
+    "kane_objective": "Navigate to product_id=28 \u2014 click Add to Cart \u2014 verify cart icon count updates. Stop once confirmed."
   },
   {
     "id": "SC-002",
@@ -35,7 +35,7 @@
     "last_verified": "2026-05-11",
     "description": "User can open the cart dropdown and see the list of added items with their names and prices",
     "feature": "CART",
-    "kane_objective": "Verify: User can open the cart dropdown and see the list of added items with their names and prices",
+    "kane_objective": "Navigate to product_id=28 \u2014 add to cart \u2014 open cart dropdown \u2014 verify item name and price. Stop once confirmed.",
     "updated_at": "2026-05-13T23:35:57.885930+00:00"
   },
   {
@@ -55,7 +55,7 @@
     "last_verified": "2026-05-11",
     "description": "User can navigate to the Laptops product catalog and see a grid of product listings",
     "feature": "CATALOG",
-    "kane_objective": "Verify: User can navigate to the Laptops product catalog and see a grid of product listings",
+    "kane_objective": "User can navigate to the Laptops product catalog and see a grid of product listings",
     "updated_at": "2026-05-13T23:35:57.885958+00:00"
   },
   {
@@ -75,7 +75,7 @@
     "last_verified": "2026-05-11",
     "description": "User can apply a manufacturer brand filter from the sidebar to narrow product results",
     "feature": "FILTER",
-    "kane_objective": "Verify: User can apply a manufacturer brand filter from the sidebar to narrow product results",
+    "kane_objective": "User can apply a manufacturer brand filter from the sidebar to narrow product results",
     "updated_at": "2026-05-13T23:35:57.885971+00:00"
   },
   {
@@ -95,7 +95,7 @@
     "last_verified": "2026-05-11",
     "description": "User can click a product thumbnail to open its detail page and see the product name and price",
     "feature": "GENERAL",
-    "kane_objective": "Verify: User can click a product thumbnail to open its detail page and see the product name and price",
+    "kane_objective": "User can click a product thumbnail to open its detail page and see the product name and price",
     "updated_at": "2026-05-13T23:35:57.885985+00:00"
   },
   {
@@ -115,7 +115,7 @@
     "last_verified": "2026-05-11",
     "description": "User can browse the homepage and product listings without logging in as a guest",
     "feature": "CATALOG",
-    "kane_objective": "Verify: User can browse the homepage and product listings without logging in as a guest",
+    "kane_objective": "User can browse the homepage and product listings without logging in as a guest",
     "updated_at": "2026-05-13T23:35:57.885993+00:00"
   },
   {
@@ -135,7 +135,7 @@
     "last_verified": "2026-05-11",
     "description": "User can search for a product by name using the search bar and see relevant results",
     "feature": "SEARCH",
-    "kane_objective": "Verify: User can search for a product by name using the search bar and see relevant results",
+    "kane_objective": "User can search for a product by name using the search bar and see relevant results",
     "updated_at": "2026-05-13T23:35:57.886001+00:00"
   },
   {
@@ -145,7 +145,7 @@
     "feature": "AUTH",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886115+00:00",
-    "kane_objective": "Verify: User can register a new account by filling in first name last name email telephone and password fields"
+    "kane_objective": "User can register a new account by filling in first name last name email telephone and password fields"
   },
   {
     "id": "SC-009",
@@ -154,7 +154,7 @@
     "feature": "AUTH",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886137+00:00",
-    "kane_objective": "Verify: User can log in with a registered email address and password and land on the account dashboard"
+    "kane_objective": "Navigate to /account/login \u2014 enter credentials \u2014 click Login \u2014 verify dashboard URL. Stop immediately once confirmed."
   },
   {
     "id": "SC-010",
@@ -163,7 +163,7 @@
     "feature": "GENERAL",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886159+00:00",
-    "kane_objective": "Verify: User can log out from the account and be redirected to the home page"
+    "kane_objective": "Log in \u2014 click My Account dropdown \u2014 click Logout \u2014 verify home page redirect. Stop once confirmed."
   },
   {
     "id": "SC-011",
@@ -172,7 +172,7 @@
     "feature": "CART",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886172+00:00",
-    "kane_objective": "Verify: User can remove an item from the shopping cart and see the cart update with the item gone"
+    "kane_objective": "Navigate to product_id=28 \u2014 add to cart \u2014 navigate to checkout/cart \u2014 click Remove \u2014 verify cart empty. Stop once confirmed."
   },
   {
     "id": "SC-012",
@@ -181,7 +181,7 @@
     "feature": "CART",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886184+00:00",
-    "kane_objective": "Verify: User can update the quantity of an item in the shopping cart and see the line total recalculate"
+    "kane_objective": "Navigate to product_id=28 \u2014 add to cart \u2014 navigate to checkout/cart \u2014 change qty to 2 \u2014 update \u2014 verify total recalculates. Stop once confirmed."
   },
   {
     "id": "SC-013",
@@ -190,7 +190,7 @@
     "feature": "CHECKOUT",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886202+00:00",
-    "kane_objective": "Verify: User can sort products by price low to high and see the listing order change"
+    "kane_objective": "User can sort products by price low to high and see the listing order change"
   },
   {
     "id": "SC-014",
@@ -199,7 +199,7 @@
     "feature": "PRODUCT_DETAIL",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886220+00:00",
-    "kane_objective": "Verify: User can add a product to the wish list from the product detail page and view it in the wishlist"
+    "kane_objective": "Log in \u2014 navigate to product_id=40 \u2014 click Add to Wish List \u2014 verify confirmation. Stop once wishlist confirmed."
   },
   {
     "id": "SC-015",
@@ -208,6 +208,6 @@
     "feature": "CHECKOUT",
     "status": "active",
     "created_at": "2026-05-13T23:35:57.886235+00:00",
-    "kane_objective": "Verify: User can complete a guest checkout by entering a shipping address and selecting flat rate shipping"
+    "kane_objective": "Navigate to product_id=28 \u2014 add to cart \u2014 navigate to checkout \u2014 select Guest Checkout \u2014 fill address \u2014 select Flat Rate \u2014 verify proceed. Stop once shipping confirmed."
   }
 ]

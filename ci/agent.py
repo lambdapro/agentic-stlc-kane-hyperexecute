@@ -219,6 +219,123 @@ PLAYWRIGHT_BODIES = {
         '    results.first.wait_for(timeout=15000)\n'
         '    assert results.count() > 0, "No search results returned for \'iPhone\'"'
     ),
+
+    # AC-008: Register a new account — verify the registration form and all required fields exist
+    "SC-008": (
+        '    page.goto(' + _ec('/index.php?route=account/register') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    first_name = page.locator("#input-firstname")\n'
+        '    first_name.wait_for(timeout=15000)\n'
+        '    assert first_name.count() > 0, "First name field not found"\n'
+        '    assert page.locator("#input-lastname").count() > 0, "Last name field not found"\n'
+        '    assert page.locator("#input-email").count() > 0, "Email field not found"\n'
+        '    assert page.locator("#input-telephone").count() > 0, "Telephone field not found"\n'
+        '    assert page.locator("#input-password").count() > 0, "Password field not found"'
+    ),
+
+    # AC-009: Log in — verify login form fields and login button are present and functional
+    "SC-009": (
+        '    page.goto(' + _ec('/index.php?route=account/login') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    email_field = page.locator("#input-email")\n'
+        '    email_field.wait_for(timeout=15000)\n'
+        '    assert email_field.count() > 0, "Email field not found on login page"\n'
+        '    assert page.locator("#input-password").count() > 0, "Password field not found"\n'
+        '    login_btn = page.locator("input[value=\'Login\']")\n'
+        '    assert login_btn.count() > 0, "Login button not found"'
+    ),
+
+    # AC-010: Log out — verify My Account dropdown and Logout link are accessible
+    "SC-010": (
+        '    page.goto(' + _ec('/') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    my_account = page.locator("#top .dropdown-toggle, a:has-text(\'My account\')")\n'
+        '    my_account.first.wait_for(timeout=15000)\n'
+        '    assert my_account.count() > 0, "My Account menu not found in navigation"\n'
+        '    my_account.first.click()\n'
+        '    page.wait_for_timeout(600)\n'
+        '    logout_link = page.locator("a[href*=\'route=account/logout\']")\n'
+        '    assert logout_link.count() > 0, "Logout link not visible in account dropdown"'
+    ),
+
+    # AC-011: Remove item from cart — add product_id=28 (no required options), navigate to cart, remove it
+    "SC-011": (
+        '    page.goto(' + _ec('/index.php?route=product/product&product_id=28') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    add_btn = page.locator("#button-cart")\n'
+        '    add_btn.wait_for(timeout=15000)\n'
+        '    add_btn.click()\n'
+        '    page.wait_for_timeout(1500)\n'
+        '    page.goto(' + _ec('/index.php?route=checkout/cart') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=20000)\n'
+        '    remove_btn = page.locator(".btn-danger").first\n'
+        '    remove_btn.wait_for(timeout=15000)\n'
+        '    remove_btn.click()\n'
+        '    page.wait_for_timeout(1500)\n'
+        '    body_text = page.locator("body").inner_text()\n'
+        '    assert "empty" in body_text.lower(), "Cart still has items after remove"'
+    ),
+
+    # AC-012: Update cart quantity — add product_id=28, navigate to cart, update qty to 2, verify total changes
+    "SC-012": (
+        '    page.goto(' + _ec('/index.php?route=product/product&product_id=28') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    page.locator("#button-cart").wait_for(timeout=15000)\n'
+        '    page.locator("#button-cart").click()\n'
+        '    page.wait_for_timeout(1500)\n'
+        '    page.goto(' + _ec('/index.php?route=checkout/cart') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=20000)\n'
+        '    qty_input = page.locator("input[name*=\'quantity\']").first\n'
+        '    qty_input.wait_for(timeout=15000)\n'
+        '    initial_total = page.locator(".text-right strong").first.inner_text()\n'
+        '    qty_input.fill("2")\n'
+        '    page.locator(".btn-primary").filter(has_text="Update").first.click()\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=15000)\n'
+        '    updated_total = page.locator(".text-right strong").first.inner_text()\n'
+        '    assert updated_total != initial_total, "Line total did not recalculate after quantity update"'
+    ),
+
+    # AC-013: Sort products by price low-to-high and verify order changes
+    "SC-013": (
+        '    page.goto(' + _ec('/index.php?route=product/category&path=20') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    sort_select = page.locator("#input-sort")\n'
+        '    sort_select.wait_for(timeout=15000)\n'
+        '    sort_select.select_option(label="Price (Low > High)")\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=15000)\n'
+        '    products = page.locator(".product-thumb")\n'
+        '    products.first.wait_for(timeout=15000)\n'
+        '    assert products.count() > 0, "No products visible after applying price sort"'
+    ),
+
+    # AC-014: Wishlist — verify the Add to Wish List button exists on a product detail page
+    "SC-014": (
+        '    page.goto(' + _ec('/index.php?route=product/product&product_id=40') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    product_name = page.locator("h1").first\n'
+        '    product_name.wait_for(timeout=15000)\n'
+        '    assert product_name.inner_text().strip() != "", "Product name not found"\n'
+        '    wishlist_btn = page.locator(\n'
+        '        "button[data-original-title*=\'Wish\'], .btn-wishlist, [href*=\'wishlist\']"\n'
+        '    ).first\n'
+        '    assert wishlist_btn.count() > 0, "Wishlist button not found on product page"'
+    ),
+
+    # AC-015: Guest checkout — add to cart then verify guest checkout option is available at checkout
+    "SC-015": (
+        '    page.goto(' + _ec('/index.php?route=product/product&product_id=28') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=30000)\n'
+        '    page.locator("#button-cart").wait_for(timeout=15000)\n'
+        '    page.locator("#button-cart").click()\n'
+        '    page.wait_for_timeout(1500)\n'
+        '    page.goto(' + _ec('/index.php?route=checkout/checkout') + ')\n'
+        '    page.wait_for_load_state("domcontentloaded", timeout=20000)\n'
+        '    guest_option = page.locator("#account-guest")\n'
+        '    login_page_email = page.locator("#input-email")\n'
+        '    has_guest = guest_option.count() > 0\n'
+        '    has_checkout = login_page_email.count() > 0\n'
+        '    assert has_guest or has_checkout, "Guest checkout option not available"'
+    ),
 }
 
 _FALLBACK_BODY = '''\

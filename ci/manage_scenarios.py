@@ -7,6 +7,43 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from stage_utils import print_stage_header, print_stage_result
 
+# Optimised Kane objectives: map canonical description substrings → concise, termination-aware objective.
+# Kept in sync with _KANE_TASK_OVERRIDES in analyze_requirements.py.
+_OBJECTIVE_OVERRIDES: dict[str, str] = {
+    "add a product to the cart from the product detail page": (
+        "Navigate to product_id=28 — click Add to Cart — verify cart icon count updates. Stop once confirmed."
+    ),
+    "open the cart dropdown and see the list of added items": (
+        "Navigate to product_id=28 — add to cart — open cart dropdown — verify item name and price. Stop once confirmed."
+    ),
+    "log in with a registered email address and password and land on the account dashboard": (
+        "Navigate to /account/login — enter credentials — click Login — verify dashboard URL. Stop immediately once confirmed."
+    ),
+    "log out from the account and be redirected to the home page": (
+        "Log in — click My Account dropdown — click Logout — verify home page redirect. Stop once confirmed."
+    ),
+    "remove an item from the shopping cart and see the cart update with the item gone": (
+        "Navigate to product_id=28 — add to cart — navigate to checkout/cart — click Remove — verify cart empty. Stop once confirmed."
+    ),
+    "update the quantity of an item in the shopping cart and see the line total recalculate": (
+        "Navigate to product_id=28 — add to cart — navigate to checkout/cart — change qty to 2 — update — verify total recalculates. Stop once confirmed."
+    ),
+    "add a product to the wish list from the product detail page and view it in the wishlist": (
+        "Log in — navigate to product_id=40 — click Add to Wish List — verify confirmation. Stop once wishlist confirmed."
+    ),
+    "complete a guest checkout by entering a shipping address and selecting flat rate shipping": (
+        "Navigate to product_id=28 — add to cart — navigate to checkout — select Guest Checkout — fill address — select Flat Rate — verify proceed. Stop once shipping confirmed."
+    ),
+}
+
+
+def _get_kane_objective(description: str) -> str:
+    dl = description.lower()
+    for keyword, objective in _OBJECTIVE_OVERRIDES.items():
+        if keyword in dl:
+            return objective
+    return description
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -116,7 +153,7 @@ def main():
             "steps": steps,
             "expected_result": expected,
             "status": status,
-            "kane_objective": requirement["description"],
+            "kane_objective": _get_kane_objective(requirement["description"]),
             # Preserve the existing kane_url when updating an existing scenario so
             # scenario-specific starting URLs (e.g. category pages) are not reset
             # to the homepage on every requirements change.
