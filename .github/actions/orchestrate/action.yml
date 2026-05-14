@@ -166,6 +166,14 @@ runs:
             f.write(f"gates_passed={gates_passed}\n")
         PYEOF
 
+    - name: "Build execution payload"
+      if: always()
+      shell: bash
+      env:
+        GITHUB_RUN_ID:     ${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: python ci/notify_agent.py
+
     - name: "Upload pipeline reports"
       uses: actions/upload-artifact@v4
       if: always()

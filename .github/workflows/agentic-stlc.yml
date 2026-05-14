@@ -95,13 +95,6 @@ jobs:
           target-url:     ${{ inputs.target_url || '' }}
           he-config:      "hyperexecute.yaml"
 
-      - name: "Build Execution Payload"
-        if: always()
-        run: python ci/notify_agent.py
-        env:
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-
   # ── Summary ───────────────────────────────────────────────────────────────
   summary:
     name: "Pipeline Summary"
