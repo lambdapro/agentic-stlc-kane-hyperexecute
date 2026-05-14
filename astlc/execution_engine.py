@@ -406,6 +406,9 @@ class ProgrammaticExecutionEngine:
             token = os.environ.get("GITHUB_TOKEN", "")
             cfg   = self._config
             repo  = (cfg.project.repository if cfg and cfg.project else "") if cfg else ""
+            # Extract owner/repo slug from full URL if needed
+            if repo and repo.startswith("http"):
+                repo = "/".join(repo.rstrip("/").split("/")[-2:])
 
             monitor = PipelineMonitor(
                 github_token=token,

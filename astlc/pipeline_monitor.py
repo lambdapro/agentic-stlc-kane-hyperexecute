@@ -142,11 +142,14 @@ class PipelineMonitor:
         last_jobs_emitted: set[str] = set()
 
         self._emit(f"[GitHub] Monitoring workflow run #{run_id} ...")
+        not_found_retries = 0
+        _MAX_404_RETRIES  = 6  # wait up to ~9 min for run to appear before giving up
 
         while time.monotonic() < deadline and not stop_event.is_set():
             try:
                 resp = httpx.get(url, headers=headers, timeout=20)
                 if resp.status_code == 200:
+                    not_found_retries = 0
                     data       = resp.json()
                     status     = data.get("status", "")
                     conclusion = data.get("conclusion") or ""
@@ -183,8 +186,11 @@ class PipelineMonitor:
                             "duration_s": elapsed,
                         }
                 elif resp.status_code == 404:
-                    self._emit(f"[GitHub] Workflow run #{run_id} not found (404). Check run_id.")
-                    break
+                    not_found_retries += 1
+                    if not_found_retries >= _MAX_404_RETRIES:
+                        self._emit(f"[GitHub] Run #{run_id} still not found after {not_found_retries} retries — giving up.")
+                        break
+                    self._emit(f"[GitHub] Run #{run_id} not visible yet (retry {not_found_retries}/{_MAX_404_RETRIES})...")
             except Exception as exc:
                 self._emit(f"[GitHub] Poll error: {exc}")
 
