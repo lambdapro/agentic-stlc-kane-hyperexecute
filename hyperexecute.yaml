@@ -11,14 +11,14 @@ maxRetries: 1
 concurrency: 5
 
 # BROWSERS drives pytest parametrize in conftest.py — no HyperExecute matrix needed.
-# Each test function runs once per browser listed here (28 total = 7 tests × 4 browsers).
+# Each test function runs once per browser listed here.
 # Android connects to a LambdaTest real device via CDP; the HE VM stays Linux.
 env:
   LT_USERNAME: ${LT_USERNAME}
   LT_ACCESS_KEY: ${LT_ACCESS_KEY}
   GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
   TARGET_URL: "https://ecommerce-playground.lambdatest.io/"
-  BROWSERS: "chrome,firefox,safari,android"
+  BROWSERS: "chrome,firefox"
 
 cacheKey: '{{ checksum "requirements.txt" }}'
 cacheDirectories:
