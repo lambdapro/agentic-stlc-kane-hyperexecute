@@ -95,6 +95,13 @@ jobs:
           target-url:     ${{ inputs.target_url || '' }}
           he-config:      "hyperexecute.yaml"
 
+      - name: "Build Execution Payload"
+        if: always()
+        run: python ci/notify_agent.py
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
   # ── Summary ───────────────────────────────────────────────────────────────
   summary:
     name: "Pipeline Summary"
@@ -104,7 +111,7 @@ jobs:
     steps:
       - name: "Print final verdict"
         run: |
-          echo "## Pipeline Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## Pipeline Complete — ${{ needs.orchestrate.outputs.verdict }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -112,3 +119,4 @@ jobs:
           echo "| Pass rate | ${{ needs.orchestrate.outputs.pass-rate }}% |" >> $GITHUB_STEP_SUMMARY
           echo "| Quality gates | ${{ needs.orchestrate.outputs.quality-gates-passed }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Requirements analyzed | ${{ needs.analyze.outputs.requirements-count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run | [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY

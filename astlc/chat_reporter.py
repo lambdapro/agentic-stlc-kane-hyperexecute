@@ -85,11 +85,25 @@ class ChatReporter:
     @staticmethod
     def execution_summary(result: dict) -> str:
         """Full post-pipeline markdown summary."""
-        lines = ["# Execution Summary", ""]
-
         verdict = result.get("verdict", "UNKNOWN")
         verdict_icons = {"GREEN": "[GREEN]", "YELLOW": "[YELLOW]", "RED": "[RED]"}
-        lines.append(f"**Verdict: {verdict_icons.get(verdict, verdict)} {verdict}**")
+        verdict_badge = f"{verdict_icons.get(verdict, verdict)} {verdict}"
+
+        links = result.get("links", {})
+        run_url = links.get("github_actions", "")
+        duration_s = result.get("hyperexecute", {}).get("duration_s", 0)
+        duration_str = f"{round(duration_s / 60, 1)}m" if duration_s else ""
+
+        header_lines = ["# Pipeline Complete"]
+        if run_url:
+            header_lines.append(f"**Run:** [{run_url}]({run_url})")
+        header_lines.append(f"**Verdict:** {verdict_badge}")
+        if duration_str:
+            header_lines.append(f"**Duration:** {duration_str}")
+        header_lines.append("")
+
+        lines = header_lines + ["# Execution Summary", ""]
+        lines.append(f"**Verdict: {verdict_badge}**")
         lines.append("")
 
         # Coverage

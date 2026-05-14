@@ -49,12 +49,16 @@ class PipelineMonitor:
 
     # ── Public ────────────────────────────────────────────────────────────────
 
+    def wait_for_completion(self, run_id: str, he_job_id: str = "") -> dict:
+        """Alias for run() — used by ProgrammaticExecutionEngine._stage_monitor()."""
+        return self.run(run_id=run_id, he_job_id=he_job_id)
+
     def run(
         self,
         run_id: str,
         he_job_id: str = "",
-        poll_interval_s: int = 30,
-        max_wait_s: int = 3600,
+        poll_interval_s: int = 90,
+        max_wait_s: int = 1800,
     ) -> dict:
         """
         Poll GitHub Actions and (optionally) HyperExecute concurrently.

@@ -414,6 +414,13 @@ class ProgrammaticExecutionEngine:
             )
             result = monitor.wait_for_completion(run_id=run_id)
             self._state.complete_stage("monitor", summary=result.get("conclusion", ""))
+            payload_path = self._reports / "execution_payload.json"
+            if payload_path.exists():
+                try:
+                    payload = json.loads(payload_path.read_text())
+                    result["_execution_payload"] = payload
+                except Exception:
+                    pass
             return result
         except Exception as exc:
             self._state.complete_stage("monitor", error=str(exc))
@@ -500,33 +507,53 @@ class ProgrammaticExecutionEngine:
     ) -> CompactExecutionResult:
         self._emit("> Generating final summary...")
 
-        # Coverage
-        cov_raw   = (
-            collected.get("coverage")
-            or coverage.get("coverage", {}).get("summary", {})
-            or {}
-        )
-        cov_pct   = float(cov_raw.get("coverage_pct", 0))
-        cov_total = int(cov_raw.get("total_requirements", len(requirements)))
-        cov_done  = int(cov_raw.get("covered_full", cov_raw.get("fully_covered", 0)))
+        payload = monitor_result.get("_execution_payload", {})
+        if payload:
+            cov_pct   = float(payload.get("pass_rate", 0))
+            cov_total = int(payload.get("requirements_total", len(requirements)))
+            cov_done  = int(payload.get("requirements_covered", 0))
+        else:
+            cov_raw   = (
+                collected.get("coverage")
+                or coverage.get("coverage", {}).get("summary", {})
+                or {}
+            )
+            cov_pct   = float(cov_raw.get("coverage_pct", 0))
+            cov_total = int(cov_raw.get("total_requirements", len(requirements)))
+            cov_done  = int(cov_raw.get("covered_full", cov_raw.get("fully_covered", 0)))
 
-        verdict = self._compute_verdict(cov_pct)
+        verdict = payload.get("verdict") or self._compute_verdict(cov_pct)
 
         # Execution
-        ex    = collected.get("execution", {})
-        ep    = int(ex.get("passed", 0))
-        ef    = int(ex.get("failed", 0))
-        efl   = int(ex.get("flaky", 0))
-        etot  = int(ex.get("total", ep + ef + efl))
+        if payload:
+            ep   = int(payload.get("tests_passed", 0))
+            ef   = int(payload.get("tests_failed", 0))
+            efl  = int(payload.get("tests_flaky", 0))
+            etot = int(payload.get("tests_total", ep + ef + efl))
+        else:
+            ex   = collected.get("execution", {})
+            ep   = int(ex.get("passed", 0))
+            ef   = int(ex.get("failed", 0))
+            efl  = int(ex.get("flaky", 0))
+            etot = int(ex.get("total", ep + ef + efl))
 
         # HyperExecute
-        he     = collected.get("hyperexecute", {})
-        he_p   = int(he.get("passed", 0))
-        he_f   = int(he.get("failed", 0))
-        he_fl  = int(he.get("flaky", 0))
-        he_sh  = int(he.get("shards", 0))
-        he_dur = float(he.get("duration_s", 0))
-        he_db  = he.get("dashboard", "")
+        if payload:
+            he_raw = payload.get("hyperexecute", {})
+            he_p   = int(he_raw.get("passed", 0))
+            he_f   = int(he_raw.get("failed", 0))
+            he_fl  = int(he_raw.get("flaky", 0))
+            he_sh  = 0
+            he_dur = 0.0
+            he_db  = he_raw.get("dashboard", "")
+        else:
+            he     = collected.get("hyperexecute", {})
+            he_p   = int(he.get("passed", 0))
+            he_f   = int(he.get("failed", 0))
+            he_fl  = int(he.get("flaky", 0))
+            he_sh  = int(he.get("shards", 0))
+            he_dur = float(he.get("duration_s", 0))
+            he_db  = he.get("dashboard", "")
 
         # Quality gates — truncate to 5 for the LLM
         qg_raw        = collected.get("quality_gates", {})
