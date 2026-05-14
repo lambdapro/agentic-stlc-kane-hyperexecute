@@ -1,136 +1,182 @@
 [
   {
     "id": "AC-001",
-    "title": "User can add a product to the cart from the",
     "description": "User can add a product to the cart from the product detail page and see the cart item count update",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "failed",
-    "kane_one_liner": "searched for products on ecommerce-playground.lambdatest.io",
-    "kane_summary": "The run attempted to use the site\u2019s search box to find multiple products in sequence (first \u201ciphone\u201d, then \u201cmac\u201d, then \u201ccanon\u201d).\nIt successfully entered \u201ciphone\u201d in the \u201cSearch For Products\u201d field on the homepage and opened an iPhone product page (showing \u201ciPhone\u201d with an \u201cOut Of Stock\u201d label).\nFrom the iPhone product page, it entered \u201cmac\u201d in the search field and clicked a \u201cMacBook\u201d result from the search suggestions, which navigated to a MacBook product page.\nThe run then tried to type \u201ccanon\u201d into the search box while still on a product page, but the automation ended before it could complete the next action (for example, selecting a Canon result or loading a Canon product/search results page).\nWhy it likely failed: the flow appears incomplete\u2014after typing \u201ccanon\u201d there\u2019s no recorded click on a search suggestion or the Search button, and no final page showing Canon results; the script may have stopped early or couldn\u2019t find/activate the next expected search result element.",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "final_url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=43"
-    },
-    "kane_duration": 286,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A1B41VKMGX60QPWVTYQFK/dashboard/share/US_50C3ICY53YSZXY5S2T4P5O30H211TPFVSRQ8JED9EZLWLQPJLY0SJ54A0AK7I955?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
   },
   {
     "id": "AC-002",
-    "title": "User can open the cart and see the list of",
-    "description": "User can open the cart and see the list of added items with their names and prices",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "failed",
-    "kane_one_liner": "attempted to open the cart and select a product option on ecommerce-playground.lambdatest.io",
-    "kane_summary": "The run navigated to the LambdaTest eCommerce Playground site and opened the cart panel from the top-right cart icon.\nThe cart slide-out showed \u201cYour shopping cart is empty!\u201d with $0.00 totals, indicating nothing was successfully added to the cart at that point.\nIt then opened a product page (URL shows product_id=30). The visible product page in the screenshots is for \u201cCanon EOS 5D\u201d and shows a required option dropdown (\u201c--- Please Select ---\u201d with a red \u201cSize required!\u201d message), suggesting the product needs an option selected before it can be added to the cart.\nA later step attempted to click a specific product option element (DOM id #input-option230-216836), likely to satisfy the required \u201cSize\u201d selection.\nThe automation failed immediately after that with \u201cstep file not found,\u201d so it never completed the next action (such as adding the item to the cart or proceeding to checkout). This looks like a test/script issue rather than a user-visible site error, and it prevented finishing the shopping flow.\nThere is also a mismatch between the intended product (\u201cMicrosoft smartwatch\u201d was clicked earlier) and the product page shown (\u201cCanon EOS 5D\u201d), which likely indicates the flow navigated to an unexpected product page or the product selection step did not land on the correct item.",
+    "description": "User can open the cart dropdown and see the list of added items with their names and prices",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "final_url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=30"
-    },
-    "kane_duration": 305.8,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A1B9JFBHJ9YVM819Y28VY/dashboard/share/US_1R3FH180YFGVCDRWW751E2OCB3YXJ9MQW80UHCCWV0EBCT7ALGU42IGHMWSW36XL?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
   },
   {
     "id": "AC-003",
-    "title": "User can navigate to the product catalog and see a",
-    "description": "User can navigate to the product catalog and see a list of products",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "passed",
-    "kane_one_liner": "opened the Laptops product catalog on ecommerce-playground.lambdatest.io",
-    "kane_summary": "Opened https://ecommerce-playground.lambdatest.io/.\nUsed the site navigation to go to the product browsing/catalog area.\nLanded on the Laptops category page where a grid of product items is visible.",
+    "description": "User can navigate to the Laptops product catalog and see a grid of product listings",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/category&path=18",
-      "category_page_title": "Laptops",
-      "products_visible": "true"
-    },
-    "kane_duration": 91.9,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A1B8SKSR80F1GHH1C4NPY/dashboard/share/US_BLCSQKZ989F7WAOJ1BTKS9SEWHIMVPB37BUC43KJ871TBZWS0I3J1AW4TTCFMOE4?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
   },
   {
     "id": "AC-004",
-    "title": "User can apply a brand filter from the sidebar to",
-    "description": "User can apply a brand filter from the sidebar to narrow product results",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "failed",
-    "kane_one_liner": "attempted to filter Components by Apple on ecommerce-playground.lambdatest.io",
-    "kane_summary": "The run navigated to the LambdaTest Ecommerce Playground site and clicked \u201cSHOP NOW.\u201d\nIt opened the \u201cShop by Category\u201d menu and selected the \u201cComponents\u201d category, landing on the Components listing page (URL shows category path=25).\nOn the Components page, the left-side FILTER panel shows a \u201cMANUFACTURER\u201d section with \u201cApple\u201d listed as an option, and the automation attempted to click the \u201cApple\u201d manufacturer filter.\nThe run failed before confirming any filtered results (there\u2019s no evidence of the product list updating after the Apple click). This commonly happens when the filter click doesn\u2019t take effect\u2014e.g., the page didn\u2019t finish loading, the filter list was partially off-screen/collapsed, or the click landed on a non-clickable area of the manufacturer row.\nBecause the objective and final URL were not recorded in the run output, the last reliable state is the Components category page where the Apple filter was about to be applied.",
+    "description": "User can apply a manufacturer brand filter from the sidebar to narrow product results",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/category&path=25"
-    },
-    "kane_duration": 328.3,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A1B6S0E0DGPCC0D2FMZ0K/dashboard/share/US_QNNDSXNTVZIIPODITXNK0VJNE9VIB20TO8457ZWJVEOJAJBTA4AR1Y2LFFZU2ROB?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
   },
   {
     "id": "AC-005",
-    "title": "User can click a product to open its detail page",
-    "description": "User can click a product to open its detail page and see the name and price",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "passed",
-    "kane_one_liner": "opened a product detail page on ecommerce-playground.lambdatest.io",
-    "kane_summary": "Went to the LambdaTest Ecommerce Playground site.\nSelected a product from the listing to open its details page.\nConfirmed the product details page displayed the product name (HTC Touch HD) and price ($146.00).",
+    "description": "User can click a product thumbnail to open its detail page and see the product name and price",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "url": "https://ecommerce-playground.lambdatest.io/index.php?route=product/product&product_id=28",
-      "product_name": "HTC Touch HD",
-      "product_price": "$146.00",
-      "product_detail_shows_name_and_price": "true"
-    },
-    "kane_duration": 129.1,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A1B7H29010R97HFNZ6CP4/dashboard/share/US_9GOTJJ4LOXUHSYWNY37FY6N32Y6397QVIMTCRG3AO2RBBA4LI2WS86F5DFUZC3ZE?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
   },
   {
     "id": "AC-006",
-    "title": "View product highlights without logging in",
-    "description": "User can browse products and the homepage without logging in",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "passed",
-    "kane_one_liner": "browsed the homepage and product listings on ecommerce-playground.lambdatest.io",
-    "kane_summary": "Opened the LambdaTest eCommerce Playground site as a guest user.\nBrowsed the homepage to confirm the main promotional banner/hero section was visible and the site could be viewed without logging in.\nFinished on the homepage with browsing access confirmed.",
+    "description": "User can browse the homepage and product listings without logging in as a guest",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "url": "https://ecommerce-playground.lambdatest.io/",
-      "homepage_hero_visible": "true"
-    },
-    "kane_duration": 89.4,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A5E1ZC2QX04HPK8AFXR5D/dashboard/share/US_5XN6Q03DGYU0K5OSOW0HMXHCXTECTI52GDWIXB3YHEYF6TOIJXEBLYEJ93FKJIAN?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
   },
   {
     "id": "AC-007",
-    "title": "User can search for a product by name and see",
-    "description": "User can search for a product by name and see relevant results",
-    "url": "https://ecommerce-playground.lambdatest.io/",
-    "kane_status": "passed",
-    "kane_one_liner": "searched for an iPhone on ecommerce-playground.lambdatest.io",
-    "kane_summary": "Opened ecommerce-playground.lambdatest.io.\nUsed the site\u2019s search bar to look up \u201ciPhone\u201d.\nA results dropdown appeared under the search bar showing multiple \u201ciPhone\u201d product entries with prices, confirming the search worked.",
+    "description": "User can search for a product by name using the search bar and see relevant results",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
     "kane_steps": [],
-    "kane_final_state": {
-      "url": "https://ecommerce-playground.lambdatest.io/",
-      "search_result_dropdown_visible": "true",
-      "search_query": "iPhone"
-    },
-    "kane_duration": 141.8,
-    "kane_links": [
-      "https://test-manager.lambdatest.com/projects/01J2VAWPNBPA21T0BW44JW026X/test-cases/01KR2A6G06BMZVENT6YZWV4PAA/dashboard/share/US_A3H4I0HK8AR6K1OITX8TM19OOSZ4FQCBQIEZLA6EUFT0716XG5MEP484G7XQEQWT?type=summary&agentView=true&fqdn=summary-page"
-    ],
-    "last_analyzed": "2026-05-07"
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-008",
+    "description": "User can register a new account by filling in first name last name email telephone and password fields",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-009",
+    "description": "User can log in with a registered email address and password and land on the account dashboard",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-010",
+    "description": "User can log out from the account and be redirected to the home page",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-011",
+    "description": "User can remove an item from the shopping cart and see the cart update with the item gone",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-012",
+    "description": "User can update the quantity of an item in the shopping cart and see the line total recalculate",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-013",
+    "description": "User can sort products by price low to high and see the listing order change",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-014",
+    "description": "User can add a product to the wish list from the product detail page and view it in the wishlist",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
+  },
+  {
+    "id": "AC-015",
+    "description": "User can complete a guest checkout by entering a shipping address and selecting flat rate shipping",
+    "feature": "",
+    "user_story": "As a shopper",
+    "source_file": "reports\\_ingested_requirements.txt",
+    "kane_status": "not_run",
+    "kane_session_url": "",
+    "kane_one_liner": "",
+    "kane_steps": [],
+    "kane_duration_ms": 0
   }
 ]
