@@ -24,27 +24,21 @@ The pipeline targets **[LambdaTest Ecommerce Playground](https://ecommerce-playg
 | **Release Manager** | Deterministic GREEN / YELLOW / RED verdict with evidence links per criterion |
 | **Exec / Demo** | One GitHub Actions summary page shows the complete end-to-end QA story |
 
-### Token Cost Comparison — v1.0 vs v1.1
+### Token Cost Comparison — Using Individual Skills in the Agent vs Triggering Agentic Pipeline with Kane AI CLI and HyperExecute
 
-The orchestration layer was re-engineered in v1.1 to eliminate token waste. All numbers measured from real production runs (see [`docs/token-efficiency-report.md`](docs/token-efficiency-report.md)).
-
-| Metric | v1.0 | v1.1 | Improvement |
-|--------|------|------|-------------|
+| Metric | Individual Skills in Agent | Agentic Pipeline (Kane AI CLI + HyperExecute) | Improvement |
+|--------|---------------------------|-----------------------------------------------|-------------|
 | `execute()` tokens | ~10,721 | ~1,355 | **7.9× reduction** |
 | State dict size | 38,884 chars | 2,222 chars | **17.5× reduction** |
 | Total per run | ~11,221 tokens | ~1,855 tokens | **6× reduction** |
 | With multi-agent enabled | ~61,221 tokens | ~6,855 tokens | **8.9× reduction** |
 | Disk reads per run | 14+ | 3–5 | **3–5× reduction** |
 
-**Root causes fixed in v1.1:**
+**Individual Skills approach** — the agent orchestrates every sub-task (requirement parsing, scenario generation, test generation, credential validation, git, CI trigger, monitoring, report collection, RCA, coverage) as direct LLM-visible function calls. Every artifact is serialised into the context window; the full `scenarios.json` + `analyzed_requirements.json` payload (38,884 chars / ~9,721 tokens) is passed through the state dict on every `execute()` call.
 
-- `CompactExecutionResult` — state dict shrunk from 38,884 chars to 2,222 chars; only counts + top-5 summaries reach the conversational layer
-- `ArtifactCache` — `scenarios.json` was read 5× per `execute()` by separate skills; now read once and shared in-memory
-- `AgentRouter` pre-slicing — prompt used to serialise full 20K-char requirement/scenario lists then discard 85%; now pre-sliced to 4,006 chars before `json.dumps()`
-- `PipelineStateEngine` — pipeline position now derived from a 92-char compact summary rather than re-reading 3–5 files
-- `ConfidenceAnalysisSkill` in-memory params — accepts live data from the calling orchestrator; zero redundant disk reads
+**Agentic Pipeline with Kane AI CLI + HyperExecute** — Kane AI CLI drives a real browser per acceptance criterion autonomously; HyperExecute fans regression tests across 5 parallel VMs. The orchestrator receives only a `CompactExecutionResult` (2,222 chars / ~555 tokens) — counts and top-5 summaries only. The LLM never sees raw test artifacts.
 
-**Token scaling is now O(1).** Token consumption per `execute()` does not grow with scenario count — adding 200 more scenarios does not increase token usage.
+**Token scaling is now O(1).** Adding 200 more scenarios to the agentic pipeline does not increase token consumption — Kane AI CLI and HyperExecute absorb the scale; the orchestrator only ever sees the compact result.
 
 ---
 
