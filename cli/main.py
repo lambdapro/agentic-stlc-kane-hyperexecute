@@ -386,6 +386,96 @@ def cmd_config(args: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_agents(args: argparse.Namespace) -> int:
+    """Multi-agent management: list, check, sync-context, run."""
+    action = getattr(args, "action", None) or "list"
+
+    if action == "list":
+        from astlc.agents import ClaudeAgent, CopilotAgent, GeminiAgent, CodexAgent
+        import shutil
+        print("\nRegistered AI Agents")
+        print("=" * 50)
+        for AgentCls in (ClaudeAgent, CopilotAgent, GeminiAgent, CodexAgent):
+            agent     = AgentCls()
+            cli_ok    = agent._check_cli_available()
+            api_ok    = agent._check_api_key_available()
+            available = cli_ok or api_ok
+            status    = "[OK]     " if available else "[MISSING]"
+            via       = ("CLI" if cli_ok else "") + ("+" if cli_ok and api_ok else "") + ("API" if api_ok else "")
+            caps      = ", ".join(agent.CAPABILITIES)
+            print(f"  {status} {agent.PROVIDER:<12} via={via or 'none':<8}  caps={caps}")
+        print()
+        return 0
+
+    elif action == "check":
+        from astlc.agents import ClaudeAgent, CopilotAgent, GeminiAgent, CodexAgent
+        cfg   = _load_config(args)
+        print("\nAgent Credential Check")
+        print("=" * 50)
+        ok_count = 0
+        for AgentCls in (ClaudeAgent, CopilotAgent, GeminiAgent, CodexAgent):
+            agent     = AgentCls()
+            available = agent.is_available()
+            icon      = "[OK]     " if available else "[MISSING]"
+            print(f"  {icon} {agent.PROVIDER}")
+            if not available:
+                hints = {
+                    "claude":  "Set ANTHROPIC_API_KEY or install Claude Code CLI (claude)",
+                    "copilot": "Install gh CLI + gh extension install github/gh-copilot",
+                    "gemini":  "Set GEMINI_API_KEY or install Gemini CLI (gemini)",
+                    "codex":   "Set OPENAI_API_KEY or install Codex CLI (codex)",
+                }
+                print(f"           {hints.get(agent.PROVIDER, 'See documentation')}")
+            else:
+                ok_count += 1
+        print(f"\n{ok_count}/{4} agents available.")
+        return 0 if ok_count > 0 else 1
+
+    elif action == "sync-context":
+        from astlc.agents import ContextFileManager
+        cfg   = _load_config(args)
+        mgr   = ContextFileManager()
+        state = {
+            "project_name": cfg.project.name if cfg.project else "",
+            "repo_url":     cfg.project.repository if cfg.project else "",
+            "target_url":   cfg.target.url if cfg.target else "",
+            "test_framework": (cfg.framework.type if cfg.framework else "playwright"),
+            "execution_provider": (cfg.execution.provider if cfg.execution else "hyperexecute"),
+        }
+        written = mgr.sync(state)
+        print("Context files updated:")
+        for f in written:
+            print(f"  {f}")
+        return 0
+
+    elif action == "run":
+        task = getattr(args, "task", None)
+        if not task:
+            print("ERROR: --task is required for 'agents run'")
+            return 1
+        from astlc.agents import AgentRouter, ClaudeAgent, CopilotAgent, GeminiAgent, CodexAgent, AgentContext
+        cfg     = _load_config(args)
+        ai_data = {}
+        if cfg.ai_agents and hasattr(cfg.ai_agents, "_data"):
+            ai_data = cfg.ai_agents._data
+        agents  = {
+            "claude":  ClaudeAgent(config=ai_data.get("claude_config", {})),
+            "copilot": CopilotAgent(config=ai_data.get("copilot_config", {})),
+            "gemini":  GeminiAgent(config=ai_data.get("gemini_config", {})),
+            "codex":   CodexAgent(config=ai_data.get("codex_config", {})),
+        }
+        router  = AgentRouter(agents=agents, config=ai_data, on_update=print)
+        context = AgentContext()
+        result  = router.route(task, context)
+        print(f"\n--- {result.provider.upper()} ({result.duration_s:.1f}s) ---")
+        print(result.output)
+        return 0 if result.success else 1
+
+    else:
+        print(f"Unknown action '{action}'. Use: list, check, sync-context, run")
+        return 1
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate config and check required tools."""
     cfg = _load_config(args)
@@ -483,6 +573,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg_set.add_argument("key",   help="Credential key (GITHUB_TOKEN, LT_USERNAME, LT_ACCESS_KEY)")
     p_cfg_set.add_argument("value", help="Value to set")
 
+    # agents  (multi-agent management)
+    p_ag = subparsers.add_parser("agents", help="Multi-agent management: list, check, sync-context, run")
+    p_ag_sub = p_ag.add_subparsers(dest="action", metavar="ACTION")
+    p_ag_sub.add_parser("list",         help="List all registered agents and their availability")
+    p_ag_sub.add_parser("check",        help="Verify credentials for all configured agents")
+    p_ag_sub.add_parser("sync-context", help="Regenerate AGENTS.md, GEMINI.md, copilot-instructions.md")
+    p_ag_run = p_ag_sub.add_parser("run", help="Run a specific task via the agent router")
+    p_ag_run.add_argument("--task", metavar="TASK", required=True,
+                          help="Task name: requirement_analysis, rca, edge_case_generation, code_review, ...")
+
     # chat  (chat-first autonomous mode)
     p_chat = subparsers.add_parser("chat", help="Chat-first autonomous QA workflow: upload requirements -> results in chat")
     p_chat.add_argument("--requirements", metavar="FILE",   help="Requirements file path (txt/md/yaml/json)")
@@ -508,6 +608,7 @@ def main() -> int:
         "validate": cmd_validate,
         "chat":     cmd_chat,
         "config":   cmd_config,
+        "agents":   cmd_agents,
     }
 
     if not args.command:

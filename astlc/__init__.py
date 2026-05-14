@@ -1,6 +1,6 @@
 """Agentic STLC Platform — enterprise-grade autonomous QA orchestration."""
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Agentic STLC Platform"
 
 from .config import PlatformConfig
@@ -12,6 +12,10 @@ from .file_ingestor import FileIngestor
 from .credential_validator import CredentialValidator
 from .pipeline_monitor import PipelineMonitor
 from .report_collector import ReportCollector
+from .artifact_cache import ArtifactCache
+from .state_engine import PipelineStateEngine, PipelineState, StageRecord
+from .execution_engine import ProgrammaticExecutionEngine, CompactExecutionResult
+from .agents import MultiAgentOrchestrator, AgentRouter, ContextFileManager
 
 __all__ = [
     "PlatformConfig",
@@ -24,4 +28,13 @@ __all__ = [
     "CredentialValidator",
     "PipelineMonitor",
     "ReportCollector",
+    "ArtifactCache",
+    "PipelineStateEngine",
+    "PipelineState",
+    "StageRecord",
+    "ProgrammaticExecutionEngine",
+    "CompactExecutionResult",
+    "MultiAgentOrchestrator",
+    "AgentRouter",
+    "ContextFileManager",
 ]

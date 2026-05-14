@@ -111,6 +111,23 @@ _DEFAULTS: dict = {
         "slack": {"enabled": False, "webhook_url": ""},
         "email": {"enabled": False, "recipients": []},
     },
+    "ai_agents": {
+        "enabled": False,
+        "primary": "claude",
+        "reviewers": ["copilot", "gemini"],
+        "codegen": "codex",
+        "rca": "claude",
+        "requirement_analysis": "claude",
+        "edge_case_generation": "gemini",
+        "fallback_chain": ["claude", "gemini", "codex"],
+        "max_concurrent": 3,
+        "cost_aware": False,
+        "latency_aware": False,
+        "claude_config": {"model": "claude-sonnet-4-6"},
+        "gemini_config": {"model": "gemini-2.0-flash"},
+        "codex_config": {"model": "gpt-4o"},
+        "copilot_config": {},
+    },
 }
 
 

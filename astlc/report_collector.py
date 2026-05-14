@@ -4,6 +4,10 @@ ReportCollector — download and parse CI artifacts into a structured summary.
 Downloads GitHub Actions artifacts (junit.xml, traceability_matrix.json,
 quality_gates.json, report.html) and parses them into a dict suitable
 for ChatReporter.execution_summary().
+
+ArtifactCache integration: when a cache is supplied every report file is
+read from disk exactly once per pipeline run.  Without a cache the
+collector falls back to direct reads (backward-compatible).
 """
 from __future__ import annotations
 
@@ -29,11 +33,13 @@ class ReportCollector:
         repo_slug: str = "",
         reports_dir: str | Path = "reports",
         on_update: UpdateFn | None = None,
+        cache: Any | None = None,   # ArtifactCache — optional, avoids circular import
     ) -> None:
         self._token      = github_token or os.environ.get("GITHUB_TOKEN", "")
         self._repo       = repo_slug
         self._reports    = Path(reports_dir)
         self._on_update  = on_update or (lambda _: None)
+        self._cache      = cache    # ArtifactCache | None
 
     # ── Public ────────────────────────────────────────────────────────────────
 
@@ -117,12 +123,19 @@ class ReportCollector:
     # ── Parsing ───────────────────────────────────────────────────────────────
 
     def _parse_local_reports(self) -> dict:
+        """
+        Single-pass parse of all local report files.
+
+        Uses ArtifactCache when available so each file is read at most once
+        across the entire pipeline run (even if multiple callers invoke this).
+        Falls back to direct reads when no cache is provided.
+        """
         result: dict[str, Any] = {
-            "execution":         {},
-            "coverage":          {},
-            "quality_gates":     {},
-            "rca":               {"failures": []},
-            "links":             {},
+            "execution":            {},
+            "coverage":             {},
+            "quality_gates":        {},
+            "rca":                  {"failures": []},
+            "links":                {},
             "artifacts_downloaded": 0,
         }
 
@@ -131,29 +144,50 @@ class ReportCollector:
         self._parse_quality_gates(result)
         self._parse_rca(result)
         self._parse_confidence(result)
+        self._parse_api_details(result)
         self._build_links(result)
 
         return result
 
+    # ── Cached JSON helper ────────────────────────────────────────────────────
+
+    def _read_json(self, path: Path) -> Any:
+        """Read JSON via cache (one disk read) or direct (backward-compat)."""
+        if self._cache is not None:
+            return self._cache.get_json(path)
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    def _find_first(self, filename: str) -> Path | None:
+        """Return first match under reports dir; prefer cache-resident paths."""
+        candidates = sorted(self._reports.rglob(filename))
+        return candidates[0] if candidates else None
+
+    # ── Individual parsers (each reads its file exactly once) ─────────────────
+
     def _parse_junit(self, result: dict) -> None:
-        junit_candidates = list(self._reports.rglob("junit.xml"))
-        if not junit_candidates:
+        junit = self._find_first("junit.xml")
+        if not junit:
             return
-        junit = junit_candidates[0]
         try:
             import xml.etree.ElementTree as ET
-            tree = ET.parse(str(junit))
-            root = tree.getroot()
-            ts   = root if root.tag == "testsuite" else root.find("testsuite")
+            if self._cache is not None:
+                root = self._cache.get_xml(junit)
+            else:
+                root = ET.parse(str(junit)).getroot()
+            if root is None:
+                return
+            ts = root if root.tag == "testsuite" else root.find("testsuite")
             if ts is None:
                 return
             total  = int(ts.get("tests", 0))
             failed = int(ts.get("failures", 0)) + int(ts.get("errors", 0))
-            flaky  = 0
-            # Count flaky: tests that have both a failure and a re-run pass
-            for tc in ts.findall("testcase"):
-                if tc.find("rerunFailure") is not None and tc.find("failure") is None:
-                    flaky += 1
+            flaky  = sum(
+                1 for tc in ts.findall("testcase")
+                if tc.find("rerunFailure") is not None and tc.find("failure") is None
+            )
             result["execution"] = {
                 "total":  total,
                 "failed": failed,
@@ -164,58 +198,71 @@ class ReportCollector:
             self._emit(f"Could not parse junit.xml: {exc}")
 
     def _parse_traceability(self, result: dict) -> None:
-        candidates = list(self._reports.rglob("traceability_matrix.json"))
-        if not candidates:
+        p = self._find_first("traceability_matrix.json")
+        if not p:
             return
-        try:
-            data    = json.loads(candidates[0].read_text(encoding="utf-8"))
-            summary = data.get("summary", {})
-            result["coverage"] = {
-                "coverage_pct":         summary.get("coverage_pct", 0),
-                "total_requirements":   summary.get("total_requirements", 0),
-                "covered_full":         summary.get("fully_covered", summary.get("covered", 0)),
-            }
-        except Exception as exc:
-            self._emit(f"Could not parse traceability_matrix.json: {exc}")
+        data = self._read_json(p)
+        if not data:
+            return
+        summary = data.get("summary", {})
+        result["coverage"] = {
+            "coverage_pct":       summary.get("coverage_pct", 0),
+            "total_requirements": summary.get("total_requirements", 0),
+            "covered_full":       summary.get("fully_covered", summary.get("covered", 0)),
+        }
 
     def _parse_quality_gates(self, result: dict) -> None:
-        candidates = list(self._reports.rglob("quality_gates.json"))
-        if not candidates:
+        p = self._find_first("quality_gates.json")
+        if not p:
             return
-        try:
-            data = json.loads(candidates[0].read_text(encoding="utf-8"))
-            result["quality_gates"] = {
-                "gates_passed":      data.get("gates_passed", False),
-                "critical_failures": data.get("critical_failures", 0),
-                "warnings":          data.get("warnings", 0),
-                "gates":             data.get("gates", []),
-            }
-        except Exception as exc:
-            self._emit(f"Could not parse quality_gates.json: {exc}")
+        data = self._read_json(p)
+        if not data:
+            return
+        result["quality_gates"] = {
+            "gates_passed":      data.get("gates_passed", False),
+            "critical_failures": data.get("critical_failures", 0),
+            "warnings":          data.get("warnings", 0),
+            "gates":             data.get("gates", []),
+        }
 
     def _parse_rca(self, result: dict) -> None:
-        candidates = list(self._reports.rglob("rca_report.json"))
-        if not candidates:
+        p = self._find_first("rca_report.json")
+        if not p:
             return
-        try:
-            data = json.loads(candidates[0].read_text(encoding="utf-8"))
-            result["rca"] = {
-                "failures": data.get("failures", []),
-            }
-        except Exception as exc:
-            self._emit(f"Could not parse rca_report.json: {exc}")
+        data = self._read_json(p)
+        if not data:
+            return
+        result["rca"] = {"failures": data.get("failures", [])}
 
     def _parse_confidence(self, result: dict) -> None:
-        candidates = list(self._reports.rglob("scenario-confidence-report.json"))
-        if not candidates:
+        p = self._find_first("scenario-confidence-report.json")
+        if not p:
             return
-        try:
-            data = json.loads(candidates[0].read_text(encoding="utf-8"))
-            result["confidence"] = {
-                "summary": data.get("summary", {}),
+        data = self._read_json(p)
+        if not data:
+            return
+        result["confidence"] = {"summary": data.get("summary", {})}
+
+    def _parse_api_details(self, result: dict) -> None:
+        """Extract HyperExecute summary written by ci/agent.py Stage 6."""
+        p = self._find_first("api_details.json")
+        if not p:
+            return
+        data = self._read_json(p)
+        if not data:
+            return
+        he = data.get("he_summary", {})
+        if he:
+            result["hyperexecute"] = {
+                "job_id":    he.get("job_id", ""),
+                "status":    he.get("status", ""),
+                "shards":    he.get("total_tasks", 0),
+                "passed":    he.get("passed", 0),
+                "failed":    he.get("failed", 0),
+                "flaky":     he.get("flaky", 0),
+                "duration_s": he.get("duration_s", 0),
+                "dashboard": he.get("dashboard_url", ""),
             }
-        except Exception as exc:
-            self._emit(f"Could not parse scenario-confidence-report.json: {exc}")
 
     def _build_links(self, result: dict) -> None:
         links: dict[str, str] = {}

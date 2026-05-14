@@ -87,3 +87,31 @@ adapters:
   execution: "hyperexecute"
   functional_testing: "kaneai"
   test_framework: "playwright"
+
+# ── Multi-Agent / Multi-Model Configuration ───────────────────────────────────
+# Set enabled: true to activate multi-agent orchestration.
+# When false (default), existing pipeline behavior is 100% unchanged.
+ai_agents:
+  enabled: false
+  primary: claude
+  reviewers:
+    - copilot
+    - gemini
+  codegen: codex
+  rca: claude
+  requirement_analysis: claude
+  edge_case_generation: gemini
+  fallback_chain:
+    - claude
+    - gemini
+    - codex
+  max_concurrent: 3
+  cost_aware: false
+  latency_aware: false
+  claude_config:
+    model: "claude-sonnet-4-6"
+  gemini_config:
+    model: "gemini-2.0-flash"
+  codex_config:
+    model: "gpt-4o"
+  copilot_config: {}

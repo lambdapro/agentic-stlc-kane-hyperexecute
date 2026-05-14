@@ -141,18 +141,11 @@ class ConversationalOrchestrator:
         target_url: str | None = None,
     ) -> dict:
         """
-        Run the full pipeline from an ingest() state dict.
+        Thin delegate: resolves config, hands off to ProgrammaticExecutionEngine,
+        renders markdown, returns chat-ready dict.
 
-        Stages:
-          1. Generate Playwright tests
-          2. Validate syntax
-          3. Git: create branch, commit, push
-          4. Trigger GitHub Actions
-          5. Monitor workflow
-          6. Collect artifacts
-          7. Coverage analysis
-          8. RCA
-          9. Format chat summary
+        The engine owns all 9 execution stages deterministically.
+        Claude is not in the execution path — it only sees the final summary.
         """
         if state.get("status") != "preview":
             return {"status": "error", "error": "Call ingest() first to build a preview state."}
@@ -169,166 +162,44 @@ class ConversationalOrchestrator:
             self.config.target.url if self.config and self.config.target else ""
         )
 
-        # ── Stage 3: Generate Playwright tests ───────────────────────────────
-        self._emit("Generating Playwright specs...")
-        test_result = self._generate_tests(scenarios, target_url)
-        test_file   = test_result.get("test_file", "tests/playwright/test_powerapps.py")
-        self._emit(f"Generated {test_result.get('tests_generated', 0)} test function(s).")
+        # ── Resolve config overrides ──────────────────────────────────────────
+        from .execution_engine import ProgrammaticExecutionEngine
+        cfg_proj   = self.config.project if self.config else None
+        repo_url   = repo_url   or (cfg_proj.repository if cfg_proj else "")
+        branch     = branch     or f"agentic-stlc/{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
+        target_url = target_url or (
+            self.config.target.url if self.config and self.config.target else ""
+        )
 
-        # ── Stage 3b: Validate generated test syntax ─────────────────────────
-        self._emit("Validating generated tests...")
-        valid = self._validate_syntax(test_file)
-        if not valid["ok"]:
-            return {"status": "error", "stage": "validate", "error": valid["error"]}
-        self._emit("Test syntax validation passed.")
-
-        # ── Stage 4a: Git operations ──────────────────────────────────────────
-        self._emit("Creating branch and committing generated files...")
-        files_to_commit = [
-            test_file,
-            "scenarios/scenarios.json",
-            "kane/objectives.json",
-        ]
-        git_result = self._git_commit(branch, files_to_commit, repo_url, auto_push)
-        if git_result.get("success"):
-            self._emit(f"Committed to branch '{branch}' (SHA: {git_result.get('commit_sha', '')[:8]}).")
-        else:
-            self._emit(f"Git commit skipped: {git_result.get('error', 'unknown')}")
-
-        # ── Stage 4b: Credential validation + GitHub Actions trigger ─────────
-        run_id  = ""
-        run_url = ""
-        he_job_id = ""
-        cred_report = None
-
-        if auto_push and repo_url:
-            self._emit("Validating pipeline credentials...")
-            validator   = CredentialValidator()
-            cred_report = validator.validate(repo_url=repo_url)
-
-            if cred_report.errors:
-                # Hard stop — surface actionable onboarding message
-                onboard_md = cred_report.onboarding_message()
-                return {
-                    "status":   "error",
-                    "stage":    "credentials",
-                    "error":    "Missing or invalid credentials. See markdown for setup instructions.",
-                    "markdown": onboard_md,
-                }
-
-            if cred_report.warnings:
-                for w in cred_report.warnings:
-                    self._emit(f"Credential warning: {w}")
-
-            self._emit("Triggering GitHub Actions workflow...")
-            trigger = self._trigger_workflow(repo_url, branch, target_url)
-            run_id  = trigger.get("run_id", "")
-            run_url = trigger.get("html_url", "")
-            if run_id:
-                self._emit(f"Workflow triggered: run #{run_id}  {run_url}")
-            else:
-                self._emit("Workflow trigger failed or returned no run ID.")
-        else:
-            missing = []
-            if not repo_url:
-                missing.append("repository URL (--repo)")
-            if not os.environ.get("GITHUB_TOKEN"):
-                missing.append("GITHUB_TOKEN")
-            self._emit(
-                f"Skipping CI pipeline trigger — missing: {', '.join(missing)}. "
-                "Running local validation only."
-            )
-
-        # ── Stage 5: Monitor workflow + HyperExecute concurrently ────────────
-        monitor_result: dict = {}
-        if run_id:
-            self._emit("Monitoring GitHub Actions workflow and HyperExecute in real time...")
-            repo_slug = repo_url
-            if repo_slug.startswith("https://github.com/"):
-                repo_slug = repo_slug.removeprefix("https://github.com/").rstrip("/")
-            pm = PipelineMonitor(
-                repo_slug=repo_slug,
-                on_update=self.on_update,
-            )
-            monitor_result = pm.run(run_id=run_id, he_job_id=he_job_id)
-            he_info = monitor_result.get("hyperexecute", {})
-            if he_info:
-                self._emit(
-                    f"HyperExecute: {he_info.get('shards', 0)} shards | "
-                    f"Passed: {he_info.get('passed', 0)}, "
-                    f"Failed: {he_info.get('failed', 0)}, "
-                    f"Flaky: {he_info.get('flaky', 0)}"
-                )
-
-        # ── Stage 6: Collect and parse artifacts ──────────────────────────────
-        self._emit("Collecting reports and artifacts...")
-        repo_slug_for_collect = ""
-        if repo_url and repo_url.startswith("https://github.com/"):
-            repo_slug_for_collect = repo_url.removeprefix("https://github.com/").rstrip("/")
-        collector = ReportCollector(
-            repo_slug=repo_slug_for_collect,
-            reports_dir=self._reports_dir,
+        # ── Delegate all 9 stages to the deterministic engine ─────────────────
+        engine = ProgrammaticExecutionEngine(
+            config=self.config,
             on_update=self.on_update,
         )
-        collected = collector.collect(run_id=run_id)
+        compact = engine.run(
+            requirements=requirements,
+            scenarios=scenarios,
+            confidence=confidence,
+            repo_url=repo_url,
+            branch=branch,
+            target_url=target_url,
+            auto_push=auto_push,
+        )
 
-        # ── Stage 7: Coverage analysis ────────────────────────────────────────
-        self._emit("Running coverage analysis...")
-        coverage_result = self._coverage_analysis(requirements, scenarios)
-        # Merge collected coverage if local CoverageSkill has no data
-        coverage_summary = coverage_result.get("coverage", {}).get("summary", {})
-        if not coverage_summary and collected.get("coverage"):
-            coverage_summary = collected["coverage"]
+        # ── Error path: surface credential onboarding markdown ────────────────
+        if compact.status == "error":
+            return {
+                "status":   "error",
+                "stage":    compact.stage,
+                "error":    compact.error,
+                "markdown": compact.markdown or compact.error,
+            }
 
-        # ── Stage 8: RCA ──────────────────────────────────────────────────────
-        self._emit("Performing root cause analysis...")
-        rca = self._run_rca()
-        # Merge downloaded RCA failures if local skill produced none
-        if not rca.get("failures") and collected.get("rca", {}).get("failures"):
-            rca["failures"] = collected["rca"]["failures"]
-
-        # ── Stage 9: Build verdict ────────────────────────────────────────────
-        self._emit("Generating final summary...")
-        verdict = self._compute_verdict(coverage_result)
-
-        # Build HyperExecute summary from monitor or collected data
-        he_monitor = monitor_result.get("hyperexecute", {})
-        he_summary = {
-            "shards":     he_monitor.get("shards", 0) or self._parse_he_summary().get("shards", 0),
-            "duration_s": he_monitor.get("duration_s", 0) or self._parse_he_summary().get("duration_s", 0),
-            "passed":     he_monitor.get("passed", 0),
-            "failed":     he_monitor.get("failed", 0),
-            "flaky":      he_monitor.get("flaky", 0),
-            "dashboard":  he_monitor.get("dashboard", self._he_dashboard_url()),
-        }
-
-        # Execution: prefer collected (from CI artifact) over local junit
-        execution = collected.get("execution") or self._parse_junit()
-
-        # ── Assemble result ───────────────────────────────────────────────────
-        result = {
-            "status":       "complete",
-            "verdict":      verdict,
-            "coverage":     coverage_summary,
-            "confidence":   collected.get("confidence", confidence),
-            "execution":    execution,
-            "hyperexecute": he_summary,
-            "quality_gates": collected.get("quality_gates", {}),
-            "rca":          rca,
-            "links": {
-                "github_actions":    run_url,
-                "hyperexecute":      he_summary.get("dashboard", ""),
-                "playwright_report": str(self._reports_dir / "report.html"),
-            },
-            "git":     git_result,
-            "monitor": monitor_result,
-        }
-
-        markdown = ChatReporter.execution_summary(result)
-        result["markdown"] = markdown
-
+        # ── Render final summary — only thing Claude sees ─────────────────────
         self._emit("Done.")
-        return result
+        chat_dict = compact.to_chat_dict()
+        chat_dict["markdown"] = ChatReporter.execution_summary(chat_dict)
+        return chat_dict
 
     # ── Stage helpers ─────────────────────────────────────────────────────────
 

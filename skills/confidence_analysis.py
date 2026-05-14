@@ -34,25 +34,39 @@ class ConfidenceAnalysisSkill(AgentSkill):
     version = "1.0.0"
 
     def run(self, **inputs: Any) -> dict:
+        """
+        Run confidence analysis.
+
+        Accepts optional in-memory ``requirements`` and ``scenarios`` lists so
+        callers that already have the data avoid a redundant disk read.  Falls
+        back to disk paths when the lists are not supplied.
+        """
         sys.path.insert(0, "ci")
         reports_dir = Path(self.reports_dir)
         reports_dir.mkdir(parents=True, exist_ok=True)
 
-        req_path = Path(
-            inputs.get("requirements_path")
-            or (self.config.requirements_output if self.config else "requirements/analyzed_requirements.json")
-        )
-        sc_path = Path(
-            inputs.get("scenarios_path")
-            or (self.config.scenarios_path if self.config else "scenarios/scenarios.json")
-        )
         playwright_bodies: dict[str, str] = inputs.get("playwright_bodies", {})
 
-        if not req_path.exists() or not sc_path.exists():
-            return {"success": False, "error": "requirements or scenarios file not found"}
+        # Prefer in-memory data; only read disk when not provided.
+        requirements: list[dict] | None = inputs.get("requirements")
+        scenarios:    list[dict] | None = inputs.get("scenarios")
 
-        requirements = json.loads(req_path.read_text(encoding="utf-8"))
-        scenarios    = json.loads(sc_path.read_text(encoding="utf-8"))
+        if requirements is None or scenarios is None:
+            req_path = Path(
+                inputs.get("requirements_path")
+                or (self.config.requirements_output if self.config else
+                    "requirements/analyzed_requirements.json")
+            )
+            sc_path = Path(
+                inputs.get("scenarios_path")
+                or (self.config.scenarios_path if self.config else "scenarios/scenarios.json")
+            )
+            if not req_path.exists() or not sc_path.exists():
+                return {"success": False, "error": "requirements or scenarios file not found"}
+            if requirements is None:
+                requirements = json.loads(req_path.read_text(encoding="utf-8"))
+            if scenarios is None:
+                scenarios = json.loads(sc_path.read_text(encoding="utf-8"))
 
         try:
             from scenario_confidence import run_confidence_analysis

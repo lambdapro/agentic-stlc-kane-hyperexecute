@@ -166,15 +166,15 @@ class CredentialValidator:
         access_key = os.environ.get("LT_ACCESS_KEY", "").strip()
 
         if not username:
-            report.errors.append(
-                "LT_USERNAME is not set. Required for HyperExecute parallel execution."
+            report.warnings.append(
+                "LT_USERNAME is not set. HyperExecute parallel execution will be skipped in CI."
             )
         else:
             report.lt_username = True
 
         if not access_key:
-            report.errors.append(
-                "LT_ACCESS_KEY is not set. Required for HyperExecute parallel execution."
+            report.warnings.append(
+                "LT_ACCESS_KEY is not set. HyperExecute parallel execution will be skipped in CI."
             )
         else:
             report.lt_access_key = True

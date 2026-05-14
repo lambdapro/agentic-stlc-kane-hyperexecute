@@ -168,7 +168,9 @@ class ChatReporter:
                 lines.append(f"- **{warns}** warning(s)")
             for g in gates[:5]:
                 g_icon = "[PASS]" if g.get("passed") else "[FAIL]"
-                lines.append(f"  {g_icon} {g.get('name', '')}: {g.get('message', '')}")
+                gname  = g.get("name") or g.get("gate", "")
+                gmsg   = g.get("message") or g.get("detail", "")
+                lines.append(f"  {g_icon} {gname}: {gmsg}")
             lines.append("")
 
         # GitHub Actions job breakdown
@@ -216,6 +218,21 @@ class ChatReporter:
                 lines.append(f"- [HyperExecute Dashboard]({links['hyperexecute']})")
             if links.get("playwright_report"):
                 lines.append(f"- [Playwright Report]({links['playwright_report']})")
+            lines.append("")
+
+        # Agent participation
+        participation = result.get("agent_participation", [])
+        if participation:
+            lines += ["## Agent Participation", ""]
+            for entry in participation:
+                provider   = entry.get("provider", "unknown").capitalize()
+                task       = entry.get("task", "").replace("_", " ")
+                dur        = entry.get("duration_s", 0)
+                retries    = entry.get("retries", 0)
+                success    = entry.get("success", True)
+                icon       = "[OK]" if success else "[FAIL]"
+                retry_str  = f", {retries} retr{'y' if retries == 1 else 'ies'}" if retries else ""
+                lines.append(f"- {icon} **{provider}** — {task} ({round(dur, 1)}s{retry_str})")
             lines.append("")
 
         return "\n".join(lines)
